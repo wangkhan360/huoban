@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (function () {
+        try {
+          var desc = Object.getOwnPropertyDescriptor(window, 'fetch');
+          if (desc && desc.get && !desc.set && desc.configurable) {
+            var currentFetch = window.fetch;
+            Object.defineProperty(window, 'fetch', {
+              configurable: true,
+              enumerable: desc.enumerable,
+              get: function () {
+                return currentFetch;
+              },
+              set: function (nextFetch) {
+                currentFetch = nextFetch;
+              },
+            });
+          }
+          window.addEventListener(
+            'error',
+            function (event) {
+              if (
+                event &&
+                typeof event.filename === 'string' &&
+                event.filename.indexOf('chrome-extension://') === 0 &&
+                typeof event.message === 'string' &&
+                event.message.indexOf('fetch') !== -1
+              ) {
+                event.preventDefault();
+              }
+            },
+            true
+          );
+        } catch (e) {}
+      })();
+    </script>
+    <title>成长萌宠 V3.0｜云龙学生端高保真原型与 Android 原生工程</title>
+    <meta
+      name="description"
+      content="成长萌宠 V3.0 儿童 AI 成长伙伴（云龙）Android 原生学生端完整源码工程、设计系统素材与高保真交互原型。"
+    />
+    <meta property="og:title" content="成长萌宠 V3.0｜云龙学生端高保真原型与 Android 原生工程" />
+    <meta
+      property="og:description"
+      content="以朋友的方式建立关系，以管家的方式管理日常，以教练的方式帮助孩子实现目标。"
+    />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body class="bg-[#F5F8FC] text-[#13233A] antialiased selection:bg-[#2578FF]/15 selection:text-[#13233A]">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

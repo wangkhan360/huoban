@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">成长萌宠</string>
+    <string name="companion_default_name">云龙</string>
+    <string name="mock_mode_notice">当前为本地模拟演示模式（未配置真实服务端）</string>
+</resources>

@@ -1,0 +1,6 @@
+{
+  "name": "成长萌宠 V3.0｜云龙学生端原型与Android工程",
+  "description": "成长萌宠 V3.0 儿童 AI 成长伙伴（云龙）Android 原生学生端完整源码工程、设计系统素材库与高保真交互原型。",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

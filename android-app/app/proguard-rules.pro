@@ -1,0 +1,2 @@
+-keep class com.growthpet.student.data.remote.** { *; }
+-keepattributes *Annotation*
