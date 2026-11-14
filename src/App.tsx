@@ -3,15 +3,18 @@ import {
   ArrowLeft,
   CheckCircle2,
   Cloud,
+  Gift,
   History,
   Keyboard,
+  ListTodo,
   Maximize2,
   Mic,
+  Pause,
+  PhoneOff,
   Play,
   Send,
   ShieldCheck,
   SlidersHorizontal,
-  Square,
   UserCheck,
   Volume2,
   VolumeX,
@@ -38,7 +41,7 @@ import {
   routeMockAiReply,
 } from './data/mockStudentData';
 import { YunlongStage } from './components/YunlongStage';
-import { DynamicCards } from './components/DynamicCards';
+import { CelebrationOverlayData, DynamicCards, PointsRewardsCard, TaskCelebrationModal } from './components/DynamicCards';
 import { DesignSystemShowcase } from './components/DesignSystemShowcase';
 import { AndroidArchitectureView } from './components/AndroidArchitectureView';
 import yunlongAppIconImg from './assets/images/yunlong_app_icon_1794558247476.jpg';
@@ -115,24 +118,55 @@ export default function App() {
   });
   const [isEnrollingVoiceprint, setIsEnrollingVoiceprint] = useState(false);
   const [simulatedSpeakerIsOwner, setSimulatedSpeakerIsOwner] = useState(true);
+  const [isLiveVoiceSession, setIsLiveVoiceSession] = useState(false);
+
+  // Fullscreen focus timer state
+  const [focusTask, setFocusTask] = useState<TaskItem | null>(null);
+  const [focusSeconds, setFocusSeconds] = useState(0);
+  const [isFocusPaused, setIsFocusPaused] = useState(false);
+  const [focusDetailOpen, setFocusDetailOpen] = useState(false);
+  const [focusCelebration, setFocusCelebration] = useState<CelebrationOverlayData | null>(null);
+  const [showPointsSheet, setShowPointsSheet] = useState(false);
 
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const checkinRecorderRef = useRef<MediaRecorder | null>(null);
   const checkinChunksRef = useRef<Blob[]>([]);
+  const liveVoiceSessionRef = useRef(false);
+  const speechRecRef = useRef<{ stop?: () => void; abort?: () => void } | null>(null);
+  const checkinStageRef = useRef<CheckinRecordingStage>('IDLE');
+  const pendingCheckinTaskRef = useRef<TaskItem | null>(null);
+  const voiceAutoPlayRef = useRef(true);
+  const handleSendMessageRef = useRef<(rawText: string) => void>(() => {});
+
+  checkinStageRef.current = checkinStage;
+  pendingCheckinTaskRef.current = pendingCheckinTask;
+  voiceAutoPlayRef.current = voiceAutoPlay;
 
   const totalPoints = preset.pointsRecords.reduce((sum, r) => sum + r.delta, 0);
 
   useEffect(() => {
-    if (currentView === 'main_chat' && !isIdleFullscreen) {
+    if (currentView === 'main_chat' && !isIdleFullscreen && !focusTask) {
       chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages.length, currentView, isIdleFullscreen]);
+  }, [messages.length, currentView, isIdleFullscreen, focusTask]);
 
   useEffect(() => {
     if (checkinStage !== 'RECORDING') return;
     const timer = window.setInterval(() => setCheckinSeconds((s) => s + 1), 1000);
     return () => window.clearInterval(timer);
   }, [checkinStage]);
+
+  useEffect(() => {
+    if (!focusTask || isFocusPaused) return;
+    const timer = window.setInterval(() => setFocusSeconds((s) => s + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [focusTask, isFocusPaused]);
+
+  useEffect(() => {
+    if (!focusCelebration) return;
+    const timeout = window.setTimeout(() => setFocusCelebration(null), 2600);
+    return () => window.clearTimeout(timeout);
+  }, [focusCelebration]);
 
   const setCompanionAndFullscreen = (next: CompanionState) => {
     setCompanionState(next);
@@ -145,6 +179,9 @@ export default function App() {
     setCheckinStage('IDLE');
     setPendingCheckinTask(null);
     setIsIdleFullscreen(false);
+    setFocusTask(null);
+    setIsFocusPaused(false);
+    setFocusSeconds(0);
     setGradeBand(nextGrade);
     const nextPreset = createPresetForGrade(nextGrade, companionName);
     setPreset(nextPreset);
@@ -170,14 +207,97 @@ export default function App() {
     setIsSpeakingTts(false);
     setIsIdleFullscreen(false);
     setCheckinStage('IDLE');
+    setFocusTask(null);
+    setIsFocusPaused(false);
+    setFocusSeconds(0);
     setWorkspaceTab('prototype');
     setQuestionIdx(0);
     setPortraitAnswers({});
     setCurrentView('onboarding_splash');
   };
 
+  const stopSpeechRecognizer = () => {
+    try {
+      speechRecRef.current?.abort?.();
+    } catch {
+      // ignore
+    }
+    speechRecRef.current = null;
+  };
+
+  const startContinuousListenPass = () => {
+    if (!liveVoiceSessionRef.current) return;
+    stopSpeechRecognizer();
+    setIsListeningVoice(true);
+    setCompanionState('listening');
+
+    const SpeechRec =
+      (window as unknown as { webkitSpeechRecognition?: new () => unknown; SpeechRecognition?: new () => unknown })
+        .SpeechRecognition ||
+      (window as unknown as { webkitSpeechRecognition?: new () => unknown }).webkitSpeechRecognition;
+
+    if (!SpeechRec) return;
+
+    try {
+      const rec = new SpeechRec() as {
+        lang: string;
+        interimResults: boolean;
+        continuous: boolean;
+        onresult: (e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void;
+        onerror: (e: { error?: string }) => void;
+        onend: () => void;
+        start: () => void;
+        abort: () => void;
+        stop: () => void;
+      };
+      rec.lang = 'zh-CN';
+      rec.interimResults = false;
+      rec.continuous = false;
+      speechRecRef.current = rec;
+
+      rec.onresult = (e) => {
+        const transcript = e.results?.[0]?.[0]?.transcript?.trim();
+        speechRecRef.current = null;
+        if (transcript) {
+          handleSendMessageRef.current(transcript);
+        } else if (liveVoiceSessionRef.current) {
+          window.setTimeout(() => startContinuousListenPass(), 250);
+        }
+      };
+
+      rec.onerror = (e) => {
+        speechRecRef.current = null;
+        if (e?.error === 'no-speech' && liveVoiceSessionRef.current) {
+          window.setTimeout(() => startContinuousListenPass(), 300);
+        }
+        // On permission denied or unsupported mic in preview iframe, keep Yunlong calmly in live listening state
+      };
+
+      rec.onend = () => {
+        speechRecRef.current = null;
+        if (liveVoiceSessionRef.current && !window.speechSynthesis?.speaking) {
+          window.setTimeout(() => {
+            if (liveVoiceSessionRef.current && !speechRecRef.current) {
+              startContinuousListenPass();
+            }
+          }, 350);
+        }
+      };
+
+      rec.start();
+    } catch {
+      // Keep live waiting state active smoothly
+    }
+  };
+
   const speakReply = (text: string) => {
-    if (!voiceAutoPlay || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    if (!voiceAutoPlayRef.current || typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      if (liveVoiceSessionRef.current) {
+        window.setTimeout(() => startContinuousListenPass(), 750);
+      }
+      return;
+    }
+    stopSpeechRecognizer();
     window.speechSynthesis.cancel();
     const utter = new SpeechSynthesisUtterance(text);
     utter.lang = 'zh-CN';
@@ -188,10 +308,17 @@ export default function App() {
     };
     utter.onend = () => {
       setIsSpeakingTts(false);
-      setCompanionState((cur) => (cur === 'speaking' ? 'happy' : cur));
+      if (liveVoiceSessionRef.current) {
+        startContinuousListenPass();
+      } else {
+        setCompanionState((cur) => (cur === 'speaking' ? 'happy' : cur));
+      }
     };
     utter.onerror = () => {
       setIsSpeakingTts(false);
+      if (liveVoiceSessionRef.current) {
+        startContinuousListenPass();
+      }
     };
     window.speechSynthesis.speak(utter);
   };
@@ -199,7 +326,9 @@ export default function App() {
   const interruptTts = () => {
     window.speechSynthesis?.cancel();
     setIsSpeakingTts(false);
-    if (companionState === 'speaking') {
+    if (liveVoiceSessionRef.current) {
+      startContinuousListenPass();
+    } else if (companionState === 'speaking') {
       setCompanionState('happy');
     }
   };
@@ -328,7 +457,9 @@ export default function App() {
   const handleSendMessage = (rawText: string) => {
     const trimmed = rawText.trim();
     if (!trimmed) return;
-    interruptTts();
+    stopSpeechRecognizer();
+    window.speechSynthesis?.cancel();
+    setIsSpeakingTts(false);
     setIsIdleFullscreen(false);
 
     const childMsg: ChatMessage = {
@@ -342,9 +473,12 @@ export default function App() {
     setCompanionState('thinking');
 
     window.setTimeout(() => {
+      const stage = checkinStageRef.current;
+      const pendingTask = pendingCheckinTaskRef.current;
+
       // 1. Voice check-in completion while recording
       if (
-        checkinStage === 'RECORDING' &&
+        stage === 'RECORDING' &&
         (trimmed.includes('打卡完毕') || trimmed.includes('打卡完成') || trimmed.includes('完成了'))
       ) {
         finishCheckinRecordingAndSync();
@@ -352,7 +486,7 @@ export default function App() {
       }
 
       // 2. Voice confirmation when confirming homework
-      if (checkinStage === 'CONFIRMING_HOMEWORK' && pendingCheckinTask) {
+      if (stage === 'CONFIRMING_HOMEWORK' && pendingTask) {
         if (
           trimmed === '是' ||
           trimmed.includes('确认') ||
@@ -360,13 +494,13 @@ export default function App() {
           trimmed.includes('对') ||
           trimmed === '好'
         ) {
-          startCheckinRecording(pendingCheckinTask);
+          startCheckinRecording(pendingTask);
           return;
         }
         if (trimmed.includes('不') || trimmed.includes('取消') || trimmed.includes('换')) {
           setCheckinStage('IDLE');
           setPendingCheckinTask(null);
-          appendAiBubble('好的，已取消本次打卡。你想打开哪一项作业呢？', 'idle');
+          appendAiBubble('好的，已取消本次打卡。你想打开哪一项作业呢？', 'listening');
           return;
         }
       }
@@ -390,6 +524,8 @@ export default function App() {
       appendAiBubble(ai.replyText, ai.companionState, ai.cardType);
     }, 300);
   };
+
+  handleSendMessageRef.current = handleSendMessage;
 
   const enrollOwnerVoiceprint = async () => {
     if (isEnrollingVoiceprint) return;
@@ -460,71 +596,36 @@ export default function App() {
     return true;
   };
 
-  const handleVoiceButton = () => {
-    if (isListeningVoice) {
-      setIsListeningVoice(false);
-      setCompanionState('happy');
-      return;
-    }
-
+  const startLiveVoiceSession = () => {
     if (isIdleFullscreen && ownerVoiceprint.enabled && ownerVoiceprint.enrolled) {
       const allowed = verifyOwnerWakeAttempt(simulatedSpeakerIsOwner, ownerVoiceprint.wakePhrase);
       if (!allowed) return;
     }
-
-    interruptTts();
+    window.speechSynthesis?.cancel();
+    setIsSpeakingTts(false);
     setIsIdleFullscreen(false);
-    setIsListeningVoice(true);
-    setCompanionState('listening');
+    setShowTextInput(false);
+    liveVoiceSessionRef.current = true;
+    setIsLiveVoiceSession(true);
+    startContinuousListenPass();
+  };
 
-    const SpeechRec =
-      (window as unknown as { webkitSpeechRecognition?: new () => unknown; SpeechRecognition?: new () => unknown })
-        .SpeechRecognition ||
-      (window as unknown as { webkitSpeechRecognition?: new () => unknown }).webkitSpeechRecognition;
+  const stopLiveVoiceSession = () => {
+    liveVoiceSessionRef.current = false;
+    setIsLiveVoiceSession(false);
+    stopSpeechRecognizer();
+    window.speechSynthesis?.cancel();
+    setIsSpeakingTts(false);
+    setIsListeningVoice(false);
+    setCompanionState('happy');
+  };
 
-    if (SpeechRec) {
-      try {
-        const rec = new SpeechRec() as {
-          lang: string;
-          onresult: (e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void;
-          onerror: () => void;
-          onend: () => void;
-          start: () => void;
-        };
-        rec.lang = 'zh-CN';
-        rec.onresult = (e) => {
-          const transcript = e.results[0][0].transcript;
-          setIsListeningVoice(false);
-          handleSendMessage(transcript);
-        };
-        rec.onerror = () => {
-          setIsListeningVoice(false);
-          handleSendMessage(
-            checkinStage === 'RECORDING'
-              ? '打卡完毕'
-              : checkinStage === 'CONFIRMING_HOMEWORK'
-              ? '确认'
-              : '开始打开语文作业'
-          );
-        };
-        rec.onend = () => setIsListeningVoice(false);
-        rec.start();
-        return;
-      } catch {
-        // Fallback to simulated voice turn
-      }
+  const handleVoiceButton = () => {
+    if (isLiveVoiceSession) {
+      stopLiveVoiceSession();
+    } else {
+      startLiveVoiceSession();
     }
-
-    window.setTimeout(() => {
-      setIsListeningVoice(false);
-      handleSendMessage(
-        checkinStage === 'RECORDING'
-          ? '打卡完毕'
-          : checkinStage === 'CONFIRMING_HOMEWORK'
-          ? '确认'
-          : '开始打开语文作业'
-      );
-    }, 1000);
   };
 
   const handleVerifyParentCode = () => {
@@ -551,6 +652,64 @@ export default function App() {
     );
     if (status === 'COMPLETED') setCompanionState('celebrating');
     else if (status === 'IN_PROGRESS') setCompanionState('encouraging');
+  };
+
+  const startFocusSession = (task: TaskItem) => {
+    if (liveVoiceSessionRef.current) {
+      liveVoiceSessionRef.current = false;
+      setIsLiveVoiceSession(false);
+      stopSpeechRecognizer();
+      setIsListeningVoice(false);
+    }
+    window.speechSynthesis?.cancel();
+    setIsSpeakingTts(false);
+    setIsIdleFullscreen(false);
+    handleUpdateTask(task.id, 'IN_PROGRESS');
+    setFocusTask(task);
+    setFocusSeconds(0);
+    setIsFocusPaused(false);
+    setFocusDetailOpen(false);
+    setCompanionState('thinking');
+  };
+
+  const toggleFocusPause = () => {
+    setIsFocusPaused((prev) => {
+      const nextPaused = !prev;
+      setCompanionState(nextPaused ? 'resting' : 'thinking');
+      return nextPaused;
+    });
+  };
+
+  const exitFocusScreen = () => {
+    setFocusTask(null);
+    setIsFocusPaused(false);
+    setFocusDetailOpen(false);
+    setCompanionState('happy');
+  };
+
+  const completeFocusSession = () => {
+    if (!focusTask) return;
+    const target = focusTask;
+    const mins = Math.floor(focusSeconds / 60);
+    const secs = focusSeconds % 60;
+    const durationLabel = mins > 0 ? `${mins}分${secs}秒` : `${secs}秒`;
+    const remainingTodo = tasks.filter(
+      (t) => t.id !== target.id && t.status !== 'COMPLETED'
+    ).length;
+
+    handleUpdateTask(target.id, 'COMPLETED', `专注用时 ${durationLabel} 完成`);
+    setFocusTask(null);
+    setIsFocusPaused(false);
+    setFocusDetailOpen(false);
+    setFocusCelebration({
+      taskTitle: target.title,
+      pointsReward: target.pointsReward,
+      allCompleted: remainingTodo === 0,
+    });
+    appendAiBubble(
+      `太棒啦！你专注完成了【${target.title}】，一共坚持了 ${durationLabel}！`,
+      'celebrating'
+    );
   };
 
   const handleMoveScheduleUp = (idx: number) => {
@@ -1142,6 +1301,7 @@ export default function App() {
                             companionName={companionName}
                             gradeBand={gradeBand}
                             size="lg"
+                            hideMotionHint
                           />
                         </div>
                         <div className="space-y-1.5 pt-4">
@@ -1150,8 +1310,8 @@ export default function App() {
                           </h2>
                           <p className="text-sm text-[#475C78] max-w-[260px] mx-auto">
                             {ownerVoiceprint.enabled && ownerVoiceprint.enrolled
-                              ? `已开启声纹专属守护：仅小主人 ${ownerVoiceprint.ownerLabel} 说出“${ownerVoiceprint.wakePhrase}”可唤醒`
-                              : '轻触画面或点击唤醒按钮，对我说“开始打开语文作业”即可开始录音打卡'}
+                              ? `仅小主人 ${ownerVoiceprint.ownerLabel} 说出“${ownerVoiceprint.wakePhrase}”可唤醒`
+                              : '轻触画面，或开启实时语音聊天'}
                           </p>
                         </div>
                       </div>
@@ -1181,43 +1341,160 @@ export default function App() {
                           </div>
                         )}
 
-                        <div className="flex gap-2 justify-center">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (!verifyOwnerWakeAttempt(simulatedSpeakerIsOwner)) return;
-                              handleSendMessage('开始打开语文作业');
-                            }}
-                            className="min-h-[40px] px-3.5 rounded-full bg-white border border-[#DCEBFF] text-xs font-medium text-[#2578FF] hover:bg-[#EEF4FB]"
-                          >
-                            唤醒说“开始打开语文作业”
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (!verifyOwnerWakeAttempt(simulatedSpeakerIsOwner)) return;
-                              handleSendMessage('开始打开英语作业');
-                            }}
-                            className="min-h-[40px] px-3.5 rounded-full bg-white border border-[#DCEBFF] text-xs font-medium text-[#2578FF] hover:bg-[#EEF4FB]"
-                          >
-                            唤醒说“开始打开英语作业”
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!verifyOwnerWakeAttempt(simulatedSpeakerIsOwner)) return;
+                            setIsIdleFullscreen(false);
+                            handleSendMessage('今天小任务');
+                          }}
+                          className="w-full min-h-[44px] rounded-2xl bg-white border border-[#DCEBFF] text-sm font-medium text-[#2578FF] hover:bg-[#EEF4FB] flex items-center justify-center gap-2 transition-colors"
+                        >
+                          <ListTodo className="w-4 h-4" />
+                          今天小任务
+                        </button>
 
                         <button
                           type="button"
-                          onClick={handleVoiceButton}
+                          onClick={startLiveVoiceSession}
                           className="w-full min-h-[54px] rounded-2xl bg-[#2578FF] text-white text-sm font-semibold flex items-center justify-center gap-2 shadow-sm hover:bg-[#1A5FD1] transition-colors"
                         >
                           <Mic className="w-5 h-5" />
-                          唤醒{companionName}并开始说话
+                          唤醒{companionName}，开始实时语音
                         </button>
                       </div>
                     </div>
+                  ) : focusTask ? (
+                    /* Fullscreen Focus Timer Mode */
+                    <div className="flex-1 flex flex-col justify-between bg-gradient-to-b from-[#EAF3FF] via-[#F5F8FC] to-white p-5 relative">
+                      <div className="flex items-center justify-between">
+                        <button
+                          type="button"
+                          onClick={exitFocusScreen}
+                          className="min-h-[38px] px-3.5 rounded-xl bg-white/85 border border-[#E1EAF4] text-xs font-medium text-[#475C78] hover:bg-white transition-colors"
+                        >
+                          收起
+                        </button>
+                        <span className="px-3 py-1 rounded-full bg-[#DCEBFF]/80 text-[11px] font-semibold text-[#2578FF]">
+                          {focusTask.subject} · {isFocusPaused ? '休息中' : '专注计时'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setFocusDetailOpen(true)}
+                          className="min-h-[38px] px-3.5 rounded-xl bg-white/85 border border-[#E1EAF4] text-xs font-medium text-[#2578FF] hover:bg-white transition-colors"
+                        >
+                          作业内容
+                        </button>
+                      </div>
+
+                      <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6 py-4">
+                        <div className="space-y-1 max-w-[290px]">
+                          <h2 className="text-lg font-bold text-[#13233A] leading-snug">
+                            {focusTask.title}
+                          </h2>
+                        </div>
+
+                        <div className="scale-110 py-2">
+                          <YunlongStage
+                            state={isFocusPaused ? 'resting' : 'thinking'}
+                            companionName={companionName}
+                            gradeBand={gradeBand}
+                            size="lg"
+                            statusLabelOverride={
+                              isFocusPaused ? `暂停休息中 · ${companionName}陪你歇会` : `${companionName}正在陪你专注`
+                            }
+                            hideMotionHint
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <p className="text-5xl font-bold tracking-tight text-[#13233A] font-mono-tabular">
+                            {String(Math.floor(focusSeconds / 60)).padStart(2, '0')}:
+                            {String(focusSeconds % 60).padStart(2, '0')}
+                          </p>
+                          <p className="text-xs text-[#7B8FA8]">
+                            预计 {focusTask.estimatedMinutes} 分钟 · +{focusTask.pointsReward} 分
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 pt-2">
+                        <button
+                          type="button"
+                          onClick={toggleFocusPause}
+                          className={`flex-1 min-h-[52px] rounded-2xl border text-sm font-semibold flex items-center justify-center gap-2 transition-colors ${
+                            isFocusPaused
+                              ? 'bg-[#EEF4FB] border-[#2578FF]/40 text-[#2578FF] hover:bg-[#DCEBFF]'
+                              : 'bg-white border-[#E1EAF4] text-[#475C78] hover:bg-[#F5F8FC]'
+                          }`}
+                        >
+                          {isFocusPaused ? (
+                            <>
+                              <Play className="w-4 h-4" />
+                              继续
+                            </>
+                          ) : (
+                            <>
+                              <Pause className="w-4 h-4" />
+                              暂停休息
+                            </>
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={completeFocusSession}
+                          className="flex-1 min-h-[52px] rounded-2xl bg-[#10A37F] hover:bg-[#0D8A6B] text-white text-sm font-semibold flex items-center justify-center gap-2 shadow-sm transition-colors"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          完成
+                        </button>
+                      </div>
+
+                      {focusDetailOpen && (
+                        <div
+                          className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-[#13233A]/35 backdrop-blur-[2px] p-0 sm:p-4"
+                          onClick={() => setFocusDetailOpen(false)}
+                        >
+                          <div
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-full max-w-md max-h-[80vh] overflow-y-auto bg-white border border-[#E1EAF4] rounded-t-3xl sm:rounded-3xl p-5 space-y-3 shadow-lg"
+                          >
+                            <div className="flex items-center justify-between">
+                              <h5 className="text-base font-bold text-[#13233A]">{focusTask.title}</h5>
+                              <button
+                                type="button"
+                                onClick={() => setFocusDetailOpen(false)}
+                                className="min-h-[36px] px-3 rounded-xl text-xs font-medium text-[#475C78] hover:bg-[#F5F8FC]"
+                              >
+                                关闭
+                              </button>
+                            </div>
+                            <div className="bg-[#F5F8FC] border border-[#E1EAF4] rounded-2xl p-3.5 whitespace-pre-line text-sm text-[#13233A] leading-relaxed">
+                              {focusTask.detailContent}
+                            </div>
+                            {focusTask.teacherReminder && (
+                              <div className="bg-[#FFF5E6] border border-[#F3DEC0] rounded-2xl p-3 text-xs text-[#8A5300] leading-relaxed">
+                                {focusTask.teacherReminder}
+                              </div>
+                            )}
+                            {focusTask.images.map((img) => (
+                              <img
+                                key={img.caption}
+                                src={img.url}
+                                alt={img.caption}
+                                referrerPolicy="no-referrer"
+                                className="w-full h-44 object-cover rounded-2xl border border-[#E1EAF4]"
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     <>
-                      {/* Top Bar inside App */}
-                      <div className="px-4 py-3 flex items-center justify-between border-b border-[#E1EAF4] bg-white/70 backdrop-blur-sm">
+                      {/* Minimal Top Bar */}
+                      <div className="px-4 py-2.5 flex items-center justify-between border-b border-[#E1EAF4] bg-white/75 backdrop-blur-sm">
                         <div className="flex items-center gap-1">
                           <button
                             type="button"
@@ -1238,16 +1515,16 @@ export default function App() {
                           </button>
                         </div>
 
-                        <div className="text-center">
-                          <p className="text-sm font-semibold text-[#13233A]">{companionName}</p>
-                          <button
-                            type="button"
-                            onClick={() => setIsOnline((o) => !o)}
-                            className="text-[11px] text-[#7B8FA8]"
-                          >
-                            {isOnline ? '模拟演示模式 · 网络正常' : '离线缓存模式（点击恢复）'}
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsOnline((o) => !o)}
+                          className="flex items-center gap-1.5 px-2.5 py-1 rounded-full hover:bg-[#EEF4FB]/70 transition-colors"
+                        >
+                          <span
+                            className={`w-2 h-2 rounded-full ${isOnline ? 'bg-[#10A37F]' : 'bg-[#7B8FA8]'}`}
+                          />
+                          <span className="text-sm font-semibold text-[#13233A]">{companionName}</span>
+                        </button>
 
                         <div className="flex items-center gap-1">
                           <button
@@ -1261,10 +1538,12 @@ export default function App() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleSendMessage('我现在有多少积分？')}
-                            className="min-h-[40px] px-2 rounded-xl text-xs font-semibold text-[#2578FF] hover:bg-[#EEF4FB] font-mono-tabular whitespace-nowrap"
+                            onClick={() => setShowPointsSheet(true)}
+                            aria-label="查看积分与可兑换奖励活动"
+                            className="min-h-[36px] px-2.5 rounded-xl bg-[#EEF4FB] hover:bg-[#DCEBFF] text-xs font-semibold text-[#2578FF] font-mono-tabular whitespace-nowrap flex items-center gap-1 transition-colors"
                           >
-                            {totalPoints}分
+                            <Gift className="w-3.5 h-3.5" />
+                            <span>{totalPoints}分</span>
                           </button>
                           <button
                             type="button"
@@ -1290,10 +1569,10 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* Unified Canvas: Yunlong floats over the scrollable conversation text with zero hard split */}
+                      {/* Unified Canvas: Yunlong floats near the bottom voice dock for immersive face-to-face voice chat */}
                       <div className="relative flex-1 overflow-hidden">
-                        {/* Conversation Stream filling the entire stage behind/below Yunlong */}
-                        <div className="h-full overflow-y-auto px-4 pt-[172px] pb-6 space-y-3">
+                        {/* Conversation Stream filling the canvas above floating Yunlong */}
+                        <div className="h-full overflow-y-auto px-4 pt-4 pb-[210px] space-y-3">
                           {messages.map((msg) => {
                             const isChild = msg.role === 'CHILD';
                             return (
@@ -1318,6 +1597,7 @@ export default function App() {
                                       gradeBand={gradeBand}
                                       tasks={tasks}
                                       onUpdateTask={handleUpdateTask}
+                                      onStartFocusTask={startFocusSession}
                                       onStartVoiceCheckin={(task) => promptConfirmHomeworkCheckin(task)}
                                       schedule={schedule}
                                       onMoveScheduleUp={handleMoveScheduleUp}
@@ -1365,14 +1645,14 @@ export default function App() {
                           <div ref={chatEndRef} />
                         </div>
 
-                        {/* Soft top atmospheric fade so text glides gently under floating Yunlong */}
+                        {/* Soft bottom fade so chat stream gently blends behind Yunlong */}
                         <div
                           aria-hidden="true"
-                          className="pointer-events-none absolute top-0 inset-x-0 h-24 bg-gradient-to-b from-[#EAF3FF]/90 via-[#EAF3FF]/40 to-transparent"
+                          className="pointer-events-none absolute bottom-0 inset-x-0 h-32 bg-gradient-to-t from-[#F5F8FC] via-[#F5F8FC]/85 to-transparent"
                         />
 
-                        {/* Floating Yunlong Companion Overlay */}
-                        <div className="pointer-events-none absolute top-1.5 inset-x-0 z-10 flex justify-center">
+                        {/* Bottom Floating Yunlong Stage docked close to the voice button */}
+                        <div className="pointer-events-none absolute bottom-2 inset-x-0 z-10 flex flex-col items-center gap-2">
                           <div
                             onClick={() => setCompanionAndFullscreen('idle')}
                             title="点击进入安静等待全屏显示"
@@ -1384,10 +1664,25 @@ export default function App() {
                               gradeBand={gradeBand}
                               size="md"
                               floating
+                              hideMotionHint
                               isSpeakingTts={isSpeakingTts}
                               onInterruptTts={interruptTts}
                             />
                           </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleSendMessage('今天小任务')}
+                            className="pointer-events-auto min-h-[34px] px-3.5 py-1 rounded-full bg-white/95 border border-[#DCEBFF] text-xs font-medium text-[#2578FF] hover:bg-[#EEF4FB] shadow-xs flex items-center gap-1.5 transition-colors"
+                          >
+                            <ListTodo className="w-3.5 h-3.5" />
+                            <span>今天小任务</span>
+                            {tasks.some((t) => t.status !== 'COMPLETED') && (
+                              <span className="text-[11px] text-[#7B8FA8] font-mono-tabular">
+                                · {tasks.filter((t) => t.status !== 'COMPLETED').length}
+                              </span>
+                            )}
+                          </button>
                         </div>
                       </div>
 
@@ -1395,7 +1690,7 @@ export default function App() {
                       {checkinStage === 'CONFIRMING_HOMEWORK' && pendingCheckinTask && (
                         <div className="mx-3 mb-2 p-3 rounded-2xl bg-[#EEF4FB] border border-[#2578FF]/30 space-y-2">
                           <p className="text-xs font-semibold text-[#13233A]">
-                            确认打开「{pendingCheckinTask.title}」并开启录音打卡吗？
+                            确认打开「{pendingCheckinTask.title}」并开始语音打卡吗？
                           </p>
                           <div className="flex gap-2">
                             <button
@@ -1403,7 +1698,7 @@ export default function App() {
                               onClick={() => handleSendMessage('确认')}
                               className="flex-1 min-h-[40px] rounded-xl bg-[#2578FF] text-white text-xs font-medium"
                             >
-                              语音/点击确认，开始录音
+                              确认，开始录音
                             </button>
                             <button
                               type="button"
@@ -1417,59 +1712,33 @@ export default function App() {
                       )}
 
                       {checkinStage === 'RECORDING' && (
-                        <div className="mx-3 mb-2 p-3 rounded-2xl bg-[#FFECEC] border border-[#E04848]/30 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <p className="text-xs font-semibold text-[#B92B2B]">
-                              正在录音打卡：{pendingCheckinTask?.title}
+                        <div className="mx-3 mb-2 p-3 rounded-2xl bg-[#EAF6FF] border border-[#4FB8FF]/45 flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-[#13233A] truncate">
+                              打卡录音中 · {pendingCheckinTask?.title}
                             </p>
-                            <span className="text-sm font-bold text-[#E04848] font-mono-tabular">
+                            <p className="text-xs font-bold text-[#0EA5A4] font-mono-tabular">
                               {String(Math.floor(checkinSeconds / 60)).padStart(2, '0')}:
                               {String(checkinSeconds % 60).padStart(2, '0')}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="text-[11px] text-[#7D2424]">
-                              完成后请说“打卡完毕”，录音将自动同步到云端
                             </p>
-                            <button
-                              type="button"
-                              onClick={() => handleSendMessage('打卡完毕')}
-                              className="min-h-[38px] px-3.5 rounded-xl bg-[#E04848] text-white text-xs font-medium shrink-0"
-                            >
-                              说“打卡完毕”
-                            </button>
                           </div>
+                          <button
+                            type="button"
+                            onClick={() => handleSendMessage('打卡完毕')}
+                            className="min-h-[38px] px-3.5 rounded-xl bg-[#0EA5A4] hover:bg-[#0D9488] text-white text-xs font-medium shrink-0 transition-colors"
+                          >
+                            打卡完毕
+                          </button>
                         </div>
                       )}
 
                       {checkinStage === 'SYNCING_CLOUD' && (
                         <div className="mx-3 mb-2 p-3 rounded-2xl bg-[#EEF4FB] border border-[#DCEBFF] text-xs font-medium text-[#2578FF]">
-                          正在上传打卡录音并同步至云端...
+                          正在同步至云端...
                         </div>
                       )}
 
-                      {/* Quick Conversational Triggers */}
-                      <div className="px-4 py-2 flex items-center gap-2 overflow-x-auto border-t border-[#E1EAF4]/60 bg-white/75">
-                        {[
-                          '开始打开语文作业',
-                          '开始打开英语作业',
-                          '我今天有什么作业？',
-                          '帮我看看今日时间计划',
-                          '我想成为一名科学家',
-                          '我现在有多少积分？',
-                        ].map((prompt) => (
-                          <button
-                            key={prompt}
-                            type="button"
-                            onClick={() => handleSendMessage(prompt)}
-                            className="min-h-[36px] px-3 rounded-full bg-white border border-[#E1EAF4] text-xs text-[#475C78] hover:border-[#2578FF] hover:text-[#2578FF] transition-colors whitespace-nowrap shrink-0"
-                          >
-                            {prompt}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Voice-First Bottom Control Bar (Defaults to Tap-to-Speak; Keyboard toggle reveals text input) */}
+                      {/* Voice-First Live Call Bottom Bar directly beneath Yunlong */}
                       <div className="p-3 bg-white border-t border-[#E1EAF4] flex items-center gap-2">
                         <button
                           type="button"
@@ -1484,43 +1753,65 @@ export default function App() {
                         </button>
 
                         {!showTextInput ? (
-                          <>
-                            <button
-                              type="button"
-                              onClick={handleVoiceButton}
-                              className={`flex-1 min-h-[50px] px-4 rounded-2xl text-white text-sm font-semibold flex items-center justify-center gap-2 shadow-sm transition-colors ${
-                                isListeningVoice
-                                  ? 'bg-[#E04848] animate-pulse'
-                                  : 'bg-[#2578FF] hover:bg-[#1A5FD1]'
-                              }`}
-                            >
-                              {isListeningVoice ? (
-                                <>
-                                  <Square className="w-4 h-4" />
-                                  <span>正在听你说... 点击结束</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Mic className="w-5 h-5" />
-                                  <span>
-                                    {checkinStage === 'RECORDING'
-                                      ? '点击语音说“打卡完毕”'
-                                      : `点击和${companionName}语音对话`}
-                                  </span>
-                                </>
-                              )}
-                            </button>
+                          isLiveVoiceSession ? (
+                            <div className="flex-1 min-h-[52px] px-3.5 py-2 rounded-2xl bg-gradient-to-r from-[#EBF4FF] via-[#EAF7F8] to-[#EEF4FF] border border-[#8EC5FF] flex items-center justify-between gap-2 transition-all">
+                              <div
+                                onClick={() => {
+                                  if (isSpeakingTts) interruptTts();
+                                }}
+                                className="flex items-center gap-2.5 min-w-0 cursor-pointer"
+                              >
+                                <div className="w-8 h-8 rounded-full bg-[#2578FF]/12 flex items-center justify-center gap-0.5 shrink-0">
+                                  <span className="w-0.5 h-3 rounded-full bg-[#2578FF] animate-voice-wave-1" />
+                                  <span className="w-0.5 h-4 rounded-full bg-[#4FB8FF] animate-voice-wave-2" />
+                                  <span className="w-0.5 h-3.5 rounded-full bg-[#0EA5A4] animate-voice-wave-3" />
+                                  <span className="w-0.5 h-2.5 rounded-full bg-[#2578FF] animate-voice-wave-4" />
+                                </div>
+                                <p className="text-xs font-semibold text-[#13233A] truncate">
+                                  {isSpeakingTts
+                                    ? `${companionName}正在说 · 点此打断`
+                                    : checkinStage === 'RECORDING'
+                                    ? '收音中 · 说“打卡完毕”'
+                                    : '实时对话中 · 正在听你说'}
+                                </p>
+                              </div>
 
-                            <button
-                              type="button"
-                              onClick={() => setShowTextInput(true)}
-                              aria-label="切换到键盘文字输入"
-                              title="键盘输入"
-                              className="w-11 h-11 rounded-xl border border-[#E1EAF4] flex items-center justify-center text-[#475C78] hover:bg-[#EEF4FB] shrink-0"
-                            >
-                              <Keyboard className="w-5 h-5" />
-                            </button>
-                          </>
+                              <button
+                                type="button"
+                                onClick={stopLiveVoiceSession}
+                                aria-label="暂停实时语音对话"
+                                className="min-h-[36px] px-3 rounded-xl bg-white/90 border border-[#D4E2F4] text-xs font-medium text-[#13233A] hover:bg-white flex items-center gap-1.5 shrink-0 transition-colors"
+                              >
+                                <PhoneOff className="w-3.5 h-3.5 text-[#475C78]" />
+                                <span>暂停</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={handleVoiceButton}
+                                className="flex-1 min-h-[50px] px-4 rounded-2xl bg-[#2578FF] hover:bg-[#1A5FD1] text-white text-sm font-semibold flex items-center justify-center gap-2 shadow-sm transition-colors"
+                              >
+                                <Mic className="w-5 h-5" />
+                                <span>
+                                  {checkinStage === 'RECORDING'
+                                    ? '点击说“打卡完毕”'
+                                    : `和${companionName}语音聊天`}
+                                </span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => setShowTextInput(true)}
+                                aria-label="切换到键盘文字输入"
+                                title="键盘输入"
+                                className="w-11 h-11 rounded-xl border border-[#E1EAF4] flex items-center justify-center text-[#475C78] hover:bg-[#EEF4FB] shrink-0"
+                              >
+                                <Keyboard className="w-5 h-5" />
+                              </button>
+                            </>
+                          )
                         ) : (
                           <>
                             <input
@@ -1533,7 +1824,7 @@ export default function App() {
                               placeholder={
                                 checkinStage === 'RECORDING'
                                   ? '输入“打卡完毕”结束录音...'
-                                  : `输入你想对${companionName}说的话...`
+                                  : `对${companionName}说点什么...`
                               }
                               className="flex-1 min-h-[46px] px-4 rounded-2xl bg-[#F5F8FC] border border-[#E1EAF4] text-sm focus:outline-none focus:border-[#2578FF]"
                             />
@@ -1741,8 +2032,8 @@ export default function App() {
                           type="button"
                           onClick={enrollOwnerVoiceprint}
                           disabled={isEnrollingVoiceprint}
-                          className={`flex-1 min-h-[42px] px-3 rounded-xl text-xs font-semibold text-white flex items-center justify-center gap-1.5 ${
-                            isEnrollingVoiceprint ? 'bg-[#E04848]' : 'bg-[#2578FF] hover:bg-[#1A5FD1]'
+                          className={`flex-1 min-h-[42px] px-3 rounded-xl text-xs font-semibold text-white flex items-center justify-center gap-1.5 transition-colors ${
+                            isEnrollingVoiceprint ? 'bg-[#0EA5A4]' : 'bg-[#2578FF] hover:bg-[#1A5FD1]'
                           }`}
                         >
                           <Mic className="w-4 h-4" />
@@ -1838,6 +2129,45 @@ export default function App() {
             </div>
           </section>
         </main>
+      )}
+
+      <TaskCelebrationModal
+        data={focusCelebration}
+        gradeBand={gradeBand}
+        onClose={() => setFocusCelebration(null)}
+      />
+
+      {showPointsSheet && (
+        <div
+          className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-[#13233A]/35 backdrop-blur-[2px] p-0 sm:p-4"
+          onClick={() => setShowPointsSheet(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md max-h-[85vh] overflow-y-auto bg-[#F5F8FC] border border-[#E1EAF4] rounded-t-3xl sm:rounded-3xl p-4 space-y-3 shadow-lg"
+          >
+            <div className="flex items-center justify-between px-1">
+              <div className="flex items-center gap-2">
+                <Gift className="w-4 h-4 text-[#2578FF]" />
+                <h3 className="text-base font-bold text-[#13233A]">积分奖励活动</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPointsSheet(false)}
+                className="min-h-[36px] px-3 rounded-xl bg-white border border-[#E1EAF4] text-xs font-medium text-[#475C78] hover:bg-[#EEF4FB]"
+              >
+                关闭
+              </button>
+            </div>
+
+            <PointsRewardsCard
+              totalPoints={totalPoints}
+              pointsRecords={preset.pointsRecords}
+              rewards={rewards}
+              onRequestRedeem={handleRequestRedeem}
+            />
+          </div>
+        </div>
       )}
     </div>
   );

@@ -48,7 +48,11 @@ data class StudentUiState(
     val pendingCheckinTask: TaskItemEntity? = null,
     val checkinSeconds: Int = 0,
     val isEnrollingVoiceprint: Boolean = false,
-    val simulatedSpeakerIsOwner: Boolean = true
+    val simulatedSpeakerIsOwner: Boolean = true,
+    val isLiveVoiceSession: Boolean = false,
+    val focusTask: TaskItemEntity? = null,
+    val focusSeconds: Int = 0,
+    val isFocusPaused: Boolean = false
 )
 
 private data class InteractionControlState(
@@ -59,7 +63,11 @@ private data class InteractionControlState(
     val pendingCheckinTask: TaskItemEntity? = null,
     val checkinSeconds: Int = 0,
     val isEnrollingVoiceprint: Boolean = false,
-    val simulatedSpeakerIsOwner: Boolean = true
+    val simulatedSpeakerIsOwner: Boolean = true,
+    val isLiveVoiceSession: Boolean = false,
+    val focusTask: TaskItemEntity? = null,
+    val focusSeconds: Int = 0,
+    val isFocusPaused: Boolean = false
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -75,9 +83,25 @@ class MainViewModel @Inject constructor(
 
     private val _control = MutableStateFlow(InteractionControlState())
     private var checkinTimerJob: Job? = null
+    private var focusTimerJob: Job? = null
     private var activeCheckinFilePath: String = ""
 
     val companionState: StateFlow<CompanionState> = companionController.state
+
+    init {
+        viewModelScope.launch {
+            var wasSpeaking = false
+            speechSynthesizer.isSpeaking.collect { speaking ->
+                if (wasSpeaking && !speaking && _control.value.isLiveVoiceSession) {
+                    delay(220)
+                    if (_control.value.isLiveVoiceSession && !speechRecognizer.isListening.value) {
+                        beginLiveListeningPass()
+                    }
+                }
+                wasSpeaking = speaking
+            }
+        }
+    }
 
     val uiState: StateFlow<StudentUiState> = prefsStore.sessionPrefs
         .flatMapLatest { prefs ->
@@ -133,7 +157,11 @@ class MainViewModel @Inject constructor(
                         pendingCheckinTask = ctrl.pendingCheckinTask,
                         checkinSeconds = ctrl.checkinSeconds,
                         isEnrollingVoiceprint = ctrl.isEnrollingVoiceprint,
-                        simulatedSpeakerIsOwner = ctrl.simulatedSpeakerIsOwner
+                        simulatedSpeakerIsOwner = ctrl.simulatedSpeakerIsOwner,
+                        isLiveVoiceSession = ctrl.isLiveVoiceSession,
+                        focusTask = ctrl.focusTask,
+                        focusSeconds = ctrl.focusSeconds,
+                        isFocusPaused = ctrl.isFocusPaused
                     )
                 }
             }
@@ -472,30 +500,51 @@ class MainViewModel @Inject constructor(
         }
     }
 
-    fun toggleVoiceInput() {
+    private fun beginLiveListeningPass() {
+        if (!_control.value.isLiveVoiceSession) return
+        companionController.transitionTo(CompanionState.LISTENING)
+        speechRecognizer.startListening(
+            onFinalResult = { recognized -> sendMessage(recognized) },
+            onError = {
+                if (_control.value.isLiveVoiceSession) {
+                    // Stay in calm continuous listening mode waiting for child voice
+                    companionController.transitionTo(CompanionState.LISTENING)
+                }
+            }
+        )
+    }
+
+    fun startLiveVoiceSession() {
         if (_control.value.isIdleFullscreen && !verifyOwnerWakeAttempt()) {
             return
         }
-        _control.update { it.copy(isIdleFullscreen = false) }
-        if (speechRecognizer.isListening.value) {
-            speechRecognizer.stopListening()
-            companionController.transitionTo(CompanionState.HAPPY)
+        speechSynthesizer.interrupt()
+        _control.update { it.copy(isIdleFullscreen = false, isLiveVoiceSession = true) }
+        beginLiveListeningPass()
+    }
+
+    fun stopLiveVoiceSession() {
+        speechRecognizer.stopListening()
+        speechSynthesizer.interrupt()
+        _control.update { it.copy(isLiveVoiceSession = false) }
+        companionController.transitionTo(CompanionState.HAPPY)
+    }
+
+    fun toggleVoiceInput() {
+        if (_control.value.isLiveVoiceSession) {
+            stopLiveVoiceSession()
         } else {
-            speechSynthesizer.interrupt()
-            companionController.transitionTo(CompanionState.LISTENING)
-            speechRecognizer.startListening(
-                onFinalResult = { recognized -> sendMessage(recognized) },
-                onError = { msg ->
-                    companionController.transitionTo(CompanionState.HAPPY)
-                    _control.update { it.copy(statusBanner = msg) }
-                }
-            )
+            startLiveVoiceSession()
         }
     }
 
     fun interruptAiSpeech() {
         speechSynthesizer.interrupt()
-        companionController.transitionTo(CompanionState.HAPPY)
+        if (_control.value.isLiveVoiceSession) {
+            beginLiveListeningPass()
+        } else {
+            companionController.transitionTo(CompanionState.HAPPY)
+        }
     }
 
     fun updateTaskStatus(task: TaskItemEntity, nextStatus: String, feedback: String? = null) {
@@ -512,6 +561,86 @@ class MainViewModel @Inject constructor(
             } else if (nextStatus == "IN_PROGRESS") {
                 companionController.transitionTo(CompanionState.ENCOURAGING)
             }
+        }
+    }
+
+    private fun startFocusTicker() {
+        focusTimerJob?.cancel()
+        focusTimerJob = viewModelScope.launch {
+            while (true) {
+                delay(1000)
+                val cur = _control.value
+                if (cur.focusTask != null && !cur.isFocusPaused) {
+                    _control.update { it.copy(focusSeconds = it.focusSeconds + 1) }
+                }
+            }
+        }
+    }
+
+    fun startFocusTask(task: TaskItemEntity) {
+        if (_control.value.isLiveVoiceSession) {
+            stopLiveVoiceSession()
+        }
+        speechSynthesizer.interrupt()
+        viewModelScope.launch {
+            repository.updateTask(
+                task.copy(status = "IN_PROGRESS", updatedAt = System.currentTimeMillis())
+            )
+        }
+        _control.update {
+            it.copy(
+                isIdleFullscreen = false,
+                focusTask = task,
+                focusSeconds = 0,
+                isFocusPaused = false
+            )
+        }
+        companionController.transitionTo(CompanionState.THINKING)
+        startFocusTicker()
+    }
+
+    fun toggleFocusPause() {
+        val nextPaused = !_control.value.isFocusPaused
+        _control.update { it.copy(isFocusPaused = nextPaused) }
+        companionController.transitionTo(if (nextPaused) CompanionState.RESTING else CompanionState.THINKING)
+    }
+
+    fun exitFocusScreen() {
+        focusTimerJob?.cancel()
+        _control.update {
+            it.copy(focusTask = null, focusSeconds = 0, isFocusPaused = false)
+        }
+        companionController.transitionTo(CompanionState.HAPPY)
+    }
+
+    fun completeFocusTask() {
+        val ctrl = _control.value
+        val target = ctrl.focusTask ?: return
+        val cid = uiState.value.prefs.activeChildId
+        val mins = ctrl.focusSeconds / 60
+        val secs = ctrl.focusSeconds % 60
+        val durationLabel = if (mins > 0) "${mins}分${secs}秒" else "${secs}秒"
+
+        focusTimerJob?.cancel()
+        _control.update {
+            it.copy(focusTask = null, focusSeconds = 0, isFocusPaused = false)
+        }
+        viewModelScope.launch {
+            repository.updateTask(
+                target.copy(
+                    status = "COMPLETED",
+                    feedbackNote = "专注用时 $durationLabel 完成",
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+            if (cid.isNotBlank()) {
+                val reply = "太棒啦！你专注完成了【${target.title}】，一共坚持了 $durationLabel！"
+                repository.insertConversationMessage(cid, "AI", reply, "FOCUS_COMPLETED", "celebrating")
+                if (uiState.value.prefs.voiceAutoPlayEnabled) {
+                    speechSynthesizer.speak(reply)
+                }
+            }
+            companionController.transitionTo(CompanionState.CELEBRATING)
         }
     }
 
@@ -612,6 +741,8 @@ class MainViewModel @Inject constructor(
 
     fun logout() {
         viewModelScope.launch {
+            focusTimerJob?.cancel()
+            _control.update { it.copy(focusTask = null, focusSeconds = 0, isFocusPaused = false, isLiveVoiceSession = false) }
             speechSynthesizer.interrupt()
             prefsStore.logout()
             companionController.transitionTo(CompanionState.IDLE)

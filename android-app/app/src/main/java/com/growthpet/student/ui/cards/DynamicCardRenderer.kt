@@ -11,6 +11,7 @@ fun DynamicCardRenderer(
     isRecording: Boolean,
     isPlayingPreview: Boolean,
     onUpdateTask: (com.growthpet.student.data.local.TaskItemEntity, String, String?) -> Unit,
+    onStartFocusTask: (com.growthpet.student.data.local.TaskItemEntity) -> Unit,
     onStartVoiceCheckin: (com.growthpet.student.data.local.TaskItemEntity) -> Unit,
     onMoveScheduleUp: (Int) -> Unit,
     onConfirmSchedule: () -> Unit,
@@ -32,6 +33,7 @@ fun DynamicCardRenderer(
                 tasks = uiState.tasks,
                 isLowerGrade = isLowerGrade,
                 onUpdateTask = onUpdateTask,
+                onStartFocusTask = onStartFocusTask,
                 onStartVoiceCheckin = onStartVoiceCheckin
             )
             "TIME_PLAN" -> TimePlanningCard(

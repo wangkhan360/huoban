@@ -3,11 +3,12 @@ package com.growthpet.student.ui.chat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -21,6 +22,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import com.growthpet.student.R
 import com.growthpet.student.companion.CompanionState
 import com.growthpet.student.companion.YunlongCompanionStage
@@ -28,6 +30,7 @@ import com.growthpet.student.ui.CheckinStage
 import com.growthpet.student.ui.MainViewModel
 import com.growthpet.student.ui.StudentUiState
 import com.growthpet.student.ui.cards.DynamicCardRenderer
+import com.growthpet.student.ui.cards.PointsRewardsCard
 import com.growthpet.student.ui.theme.*
 
 @Composable
@@ -46,6 +49,7 @@ fun MainChatScreen(
 
     var inputText by remember { mutableStateOf("") }
     var showTextInput by remember { mutableStateOf(false) }
+    var showPointsSheet by remember { mutableStateOf(false) }
     var lastRecordedPath by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val isLowerGrade = !uiState.prefs.activeChildId.contains("grade6")
@@ -151,40 +155,169 @@ fun MainChatScreen(
                         }
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+                    Button(
+                        onClick = {
+                            if (viewModel.verifyOwnerWakeAttempt()) {
+                                viewModel.wakeFromIdleFullscreen()
+                                viewModel.sendMessage("今天小任务")
+                            }
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(containerColor = ColorTokens.SurfaceCard),
+                        border = CardStyle.border,
+                        modifier = Modifier.fillMaxWidth().height(46.dp),
+                        shape = RoundedCornerShape(Radius.lg)
                     ) {
-                        OutlinedButton(
-                            onClick = {
-                                if (viewModel.verifyOwnerWakeAttempt()) viewModel.sendMessage("开始打开语文作业")
-                            },
-                            modifier = Modifier.weight(1f).height(44.dp),
-                            shape = RoundedCornerShape(Radius.pill)
-                        ) { Text("开始打开语文作业", maxLines = 1) }
-                        OutlinedButton(
-                            onClick = {
-                                if (viewModel.verifyOwnerWakeAttempt()) viewModel.sendMessage("开始打开英语作业")
-                            },
-                            modifier = Modifier.weight(1f).height(44.dp),
-                            shape = RoundedCornerShape(Radius.pill)
-                        ) { Text("开始打开英语作业", maxLines = 1) }
+                        Icon(Icons.Rounded.Checklist, contentDescription = null, tint = ColorTokens.TechBluePrimary, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("今天小任务", color = ColorTokens.TechBluePrimary)
                     }
                     Button(
-                        onClick = { viewModel.toggleVoiceInput() },
+                        onClick = { viewModel.startLiveVoiceSession() },
                         modifier = Modifier.fillMaxWidth().height(54.dp),
                         shape = RoundedCornerShape(Radius.lg)
                     ) {
                         Icon(Icons.Rounded.Mic, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("唤醒${uiState.prefs.companionName}并开始说话")
+                        Text("唤醒${uiState.prefs.companionName}，开始实时语音")
                     }
                 }
             }
             return@Column
         }
 
-        // Top Utility Bar (No multi-tab bottom bar — single AI chat interface)
+        // Fullscreen Focus Timer Mode
+        val activeFocusTask = uiState.focusTask
+        if (activeFocusTask != null) {
+            var showFocusDetailDialog by remember { mutableStateOf(false) }
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(Spacing.lg),
+                verticalArrangement = Arrangement.SpaceBetween,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = { viewModel.exitFocusScreen() },
+                        shape = RoundedCornerShape(Radius.md)
+                    ) { Text("收起") }
+
+                    Surface(
+                        color = ColorTokens.SkyHaloLight,
+                        shape = RoundedCornerShape(Radius.pill)
+                    ) {
+                        Text(
+                            text = "${activeFocusTask.subject} · ${if (uiState.isFocusPaused) "休息中" else "专注计时"}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = ColorTokens.TechBluePrimary,
+                            modifier = Modifier.padding(horizontal = Spacing.sm, vertical = 4.dp)
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = { showFocusDetailDialog = true },
+                        shape = RoundedCornerShape(Radius.md)
+                    ) { Text("作业内容") }
+                }
+
+                Column(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = activeFocusTask.title,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = Spacing.md)
+                    )
+                    Spacer(modifier = Modifier.height(Spacing.lg))
+                    YunlongCompanionStage(
+                        state = if (uiState.isFocusPaused) CompanionState.RESTING else CompanionState.THINKING,
+                        companionName = uiState.prefs.companionName,
+                        isLowerGrade = isLowerGrade,
+                        size = 220.dp,
+                        statusLabelOverride = if (uiState.isFocusPaused)
+                            "暂停休息中 · ${uiState.prefs.companionName}陪你歇会"
+                        else
+                            "${uiState.prefs.companionName}正在陪你专注"
+                    )
+                    Spacer(modifier = Modifier.height(Spacing.lg))
+                    Text(
+                        text = String.format("%02d:%02d", uiState.focusSeconds / 60, uiState.focusSeconds % 60),
+                        style = MaterialTheme.typography.displayMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = ColorTokens.InkPrimary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "预计 ${activeFocusTask.estimatedMinutes} 分钟 · +${activeFocusTask.pointsReward}分",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = ColorTokens.InkMuted
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
+                ) {
+                    OutlinedButton(
+                        onClick = { viewModel.toggleFocusPause() },
+                        modifier = Modifier.weight(1f).height(52.dp),
+                        shape = RoundedCornerShape(Radius.lg)
+                    ) {
+                        Icon(
+                            imageVector = if (uiState.isFocusPaused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
+                            contentDescription = null
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(if (uiState.isFocusPaused) "继续" else "暂停休息")
+                    }
+                    Button(
+                        onClick = { viewModel.completeFocusTask() },
+                        colors = ButtonDefaults.buttonColors(containerColor = ColorTokens.SuccessMint),
+                        modifier = Modifier.weight(1f).height(52.dp),
+                        shape = RoundedCornerShape(Radius.lg)
+                    ) {
+                        Icon(Icons.Rounded.CheckCircle, contentDescription = null)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("完成")
+                    }
+                }
+            }
+
+            if (showFocusDetailDialog) {
+                AlertDialog(
+                    onDismissRequest = { showFocusDetailDialog = false },
+                    title = { Text(activeFocusTask.title) },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                            if (activeFocusTask.detailContent.isNotBlank()) {
+                                Text(activeFocusTask.detailContent, style = MaterialTheme.typography.bodyMedium)
+                            }
+                            if (!activeFocusTask.teacherReminder.isNullOrBlank()) {
+                                Text(
+                                    "老师小提醒：${activeFocusTask.teacherReminder}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = ColorTokens.TechBluePrimary
+                                )
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { showFocusDetailDialog = false }) { Text("关闭") }
+                    }
+                )
+            }
+            return@Column
+        }
+
+        // Minimal Top Bar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -201,13 +334,19 @@ fun MainChatScreen(
                 }
             }
 
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(uiState.prefs.companionName, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    if (uiState.prefs.isMockMode) "模拟演示模式 · 网络正常" else "在线",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = ColorTokens.InkMuted
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .background(
+                            if (uiState.isOnline) ColorTokens.SuccessMint else ColorTokens.InkMuted,
+                            CircleShape
+                        )
                 )
+                Text(uiState.prefs.companionName, style = MaterialTheme.typography.titleMedium)
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
@@ -215,7 +354,7 @@ fun MainChatScreen(
                     Icon(Icons.Rounded.OpenInFull, contentDescription = "安静等待全屏", tint = ColorTokens.InkSecondary)
                 }
                 TextButton(
-                    onClick = { viewModel.sendMessage("我现在有多少积分？") },
+                    onClick = { showPointsSheet = true },
                     modifier = Modifier.height(44.dp)
                 ) {
                     Icon(
@@ -250,7 +389,7 @@ fun MainChatScreen(
             }
         }
 
-        // Unified Canvas: Yunlong floats over the scrollable conversation text with zero hard split
+        // Unified Canvas: Yunlong floats near the bottom voice dock for immersive voice dialogue
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -259,7 +398,7 @@ fun MainChatScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, top = 176.dp, bottom = Spacing.md),
+                contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, top = Spacing.md, bottom = 212.dp),
                 verticalArrangement = Arrangement.spacedBy(Spacing.sm)
             ) {
                 items(uiState.messages, key = { it.id }) { msg ->
@@ -296,6 +435,7 @@ fun MainChatScreen(
                                 isRecording = isRecording,
                                 isPlayingPreview = isPlayingPreview,
                                 onUpdateTask = viewModel::updateTaskStatus,
+                                onStartFocusTask = viewModel::startFocusTask,
                                 onStartVoiceCheckin = viewModel::promptConfirmHomeworkCheckin,
                                 onMoveScheduleUp = viewModel::swapScheduleUp,
                                 onConfirmSchedule = viewModel::confirmSchedulePlan,
@@ -329,42 +469,70 @@ fun MainChatScreen(
                 }
             }
 
-            // Soft top gradient so messages gently fade underneath floating Yunlong
+            // Soft bottom gradient so conversation stream blends gently behind bottom-docked Yunlong
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(92.dp)
-                    .align(Alignment.TopCenter)
+                    .height(128.dp)
+                    .align(Alignment.BottomCenter)
                     .background(
                         Brush.verticalGradient(
-                            listOf(ColorTokens.SkyGradientTop.copy(alpha = 0.88f), Color.Transparent)
+                            listOf(Color.Transparent, ColorTokens.CanvasIce.copy(alpha = 0.92f))
                         )
                     )
             )
 
-            // Floating Yunlong Companion Overlay
-            Box(
+            // Bottom Floating Yunlong Companion docked close to the voice button + single "今天小任务" pill
+            Column(
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 4.dp)
-                    .clickable { viewModel.enterIdleFullscreen() },
-                contentAlignment = Alignment.Center
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                YunlongCompanionStage(
-                    state = if (isListening) CompanionState.LISTENING else if (isSpeaking) CompanionState.SPEAKING else companionState,
-                    companionName = uiState.prefs.companionName,
-                    isLowerGrade = isLowerGrade,
-                    size = 148.dp,
-                    floating = true
-                )
-                if (isSpeaking) {
-                    OutlinedButton(
-                        onClick = { viewModel.interruptAiSpeech() },
-                        modifier = Modifier.align(Alignment.BottomEnd).padding(start = 132.dp).height(38.dp),
-                        shape = RoundedCornerShape(Radius.pill)
-                    ) {
-                        Text("打断播报")
+                Box(
+                    modifier = Modifier.clickable { viewModel.enterIdleFullscreen() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    YunlongCompanionStage(
+                        state = if (isListening) CompanionState.LISTENING else if (isSpeaking) CompanionState.SPEAKING else companionState,
+                        companionName = uiState.prefs.companionName,
+                        isLowerGrade = isLowerGrade,
+                        size = 138.dp,
+                        floating = true
+                    )
+                    if (isSpeaking) {
+                        OutlinedButton(
+                            onClick = { viewModel.interruptAiSpeech() },
+                            modifier = Modifier.align(Alignment.BottomEnd).padding(start = 128.dp).height(34.dp),
+                            shape = RoundedCornerShape(Radius.pill),
+                            contentPadding = PaddingValues(horizontal = 12.dp)
+                        ) {
+                            Text("打断")
+                        }
                     }
+                }
+
+                OutlinedButton(
+                    onClick = { viewModel.sendMessage("今天小任务") },
+                    shape = RoundedCornerShape(Radius.pill),
+                    colors = ButtonDefaults.outlinedButtonColors(containerColor = ColorTokens.SurfaceCard),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                    modifier = Modifier.height(34.dp)
+                ) {
+                    Icon(
+                        Icons.Rounded.Checklist,
+                        contentDescription = null,
+                        tint = ColorTokens.TechBluePrimary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    val pendingCount = uiState.tasks.count { it.status != "COMPLETED" }
+                    Text(
+                        text = if (pendingCount > 0) "今天小任务 · $pendingCount" else "今天小任务",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = ColorTokens.TechBluePrimary
+                    )
                 }
             }
         }
@@ -396,7 +564,7 @@ fun MainChatScreen(
             }
             CheckinStage.RECORDING -> {
                 Surface(
-                    color = ColorTokens.DangerCoral.copy(alpha = 0.12f),
+                    color = ColorTokens.SkyHaloLight,
                     shape = RoundedCornerShape(Radius.md),
                     modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = 4.dp)
                 ) {
@@ -407,18 +575,19 @@ fun MainChatScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                "正在录音打卡：${uiState.pendingCheckinTask?.title ?: "当前作业"}",
+                                "正在安心录音打卡：${uiState.pendingCheckinTask?.title ?: "当前作业"}",
                                 style = MaterialTheme.typography.labelLarge,
-                                color = ColorTokens.DangerCoral
+                                color = ColorTokens.TechBluePrimary
                             )
                             Text(
-                                "计时 ${String.format("%02d:%02d", uiState.checkinSeconds / 60, uiState.checkinSeconds % 60)} · 完成后请说“打卡完毕”",
-                                style = MaterialTheme.typography.bodySmall
+                                "计时 ${String.format("%02d:%02d", uiState.checkinSeconds / 60, uiState.checkinSeconds % 60)} · 无需按住，完成后说“打卡完毕”",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = ColorTokens.InkSecondary
                             )
                         }
                         Button(
                             onClick = { viewModel.sendMessage("打卡完毕") },
-                            colors = ButtonDefaults.buttonColors(containerColor = ColorTokens.DangerCoral)
+                            colors = ButtonDefaults.buttonColors(containerColor = ColorTokens.SuccessMint)
                         ) { Text("说“打卡完毕”") }
                     }
                 }
@@ -440,31 +609,7 @@ fun MainChatScreen(
             CheckinStage.IDLE -> Unit
         }
 
-        // Quick Conversational Triggers
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = Spacing.md, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
-        ) {
-            val prompts = listOf(
-                "开始打开语文作业",
-                "开始打开英语作业",
-                "我今天有什么作业？",
-                "帮我看看今日时间计划",
-                "我想成为一名科学家",
-                "我现在有多少积分？"
-            )
-            items(prompts) { prompt ->
-                OutlinedButton(
-                    onClick = { viewModel.sendMessage(prompt) },
-                    modifier = Modifier.height(40.dp),
-                    shape = RoundedCornerShape(Radius.pill)
-                ) {
-                    Text(prompt, style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-        }
-
-        // Voice-First Bottom Control Bar (Defaults to Tap-to-Speak; Keyboard icon switches to text input)
+        // Voice-First Live Call Bottom Bar directly beneath Yunlong
         Surface(
             color = ColorTokens.SurfaceCard,
             border = CardStyle.border,
@@ -476,30 +621,70 @@ fun MainChatScreen(
                 horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
             ) {
                 if (!showTextInput) {
-                    Button(
-                        onClick = { viewModel.toggleVoiceInput() },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isListening) ColorTokens.DangerCoral else ColorTokens.TechBluePrimary
-                        ),
-                        shape = RoundedCornerShape(Radius.lg),
-                        modifier = Modifier.weight(1f).height(52.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (isListening) Icons.Rounded.Stop else Icons.Rounded.Mic,
-                            contentDescription = null
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            if (isListening) "正在听你说... 点击结束"
-                            else if (uiState.checkinStage == CheckinStage.RECORDING) "点击语音说“打卡完毕”"
-                            else "点击和${uiState.prefs.companionName}语音对话"
-                        )
-                    }
-                    OutlinedIconButton(
-                        onClick = { showTextInput = true },
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(Icons.Rounded.Keyboard, contentDescription = "切换到键盘输入")
+                    if (uiState.isLiveVoiceSession) {
+                        Surface(
+                            color = ColorTokens.SkyHaloLight,
+                            shape = RoundedCornerShape(Radius.lg),
+                            modifier = Modifier.weight(1f).height(52.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clickable { if (isSpeaking) viewModel.interruptAiSpeech() }
+                                    .padding(horizontal = Spacing.md),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.GraphicEq,
+                                        contentDescription = null,
+                                        tint = ColorTokens.TechBluePrimary
+                                    )
+                                    Text(
+                                        when {
+                                            isSpeaking -> "${uiState.prefs.companionName}正在说 · 点此打断"
+                                            uiState.checkinStage == CheckinStage.RECORDING -> "收音中 · 说“打卡完毕”"
+                                            else -> "实时对话中 · 正在听你说"
+                                        },
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = ColorTokens.InkPrimary,
+                                        maxLines = 1
+                                    )
+                                }
+                                OutlinedButton(
+                                    onClick = { viewModel.stopLiveVoiceSession() },
+                                    contentPadding = PaddingValues(horizontal = 12.dp),
+                                    modifier = Modifier.height(36.dp)
+                                ) {
+                                    Text("暂停")
+                                }
+                            }
+                        }
+                    } else {
+                        Button(
+                            onClick = { viewModel.toggleVoiceInput() },
+                            colors = ButtonDefaults.buttonColors(containerColor = ColorTokens.TechBluePrimary),
+                            shape = RoundedCornerShape(Radius.lg),
+                            modifier = Modifier.weight(1f).height(52.dp)
+                        ) {
+                            Icon(imageVector = Icons.Rounded.Mic, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                if (uiState.checkinStage == CheckinStage.RECORDING) "点击说“打卡完毕”"
+                                else "和${uiState.prefs.companionName}语音聊天"
+                            )
+                        }
+                        OutlinedIconButton(
+                            onClick = { showTextInput = true },
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(Icons.Rounded.Keyboard, contentDescription = "切换到键盘输入")
+                        }
                     }
                 } else {
                     OutlinedTextField(
@@ -527,6 +712,54 @@ fun MainChatScreen(
                         modifier = Modifier.size(48.dp)
                     ) {
                         Icon(Icons.Rounded.Mic, contentDescription = "切回语音主模式")
+                    }
+                }
+            }
+        }
+    }
+
+    if (showPointsSheet) {
+        Dialog(onDismissRequest = { showPointsSheet = false }) {
+            Surface(
+                shape = RoundedCornerShape(Radius.xl),
+                color = ColorTokens.CanvasIce,
+                border = CardStyle.border,
+                modifier = Modifier.fillMaxWidth().heightIn(max = 620.dp)
+            ) {
+                Column(modifier = Modifier.padding(Spacing.md)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_yunlong_points),
+                                contentDescription = null,
+                                tint = ColorTokens.TechBluePrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text("积分奖励活动", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
+                        TextButton(onClick = { showPointsSheet = false }) {
+                            Text("关闭")
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        PointsRewardsCard(
+                            totalPoints = uiState.totalPoints,
+                            records = uiState.pointsRecords,
+                            rewards = uiState.rewards,
+                            onRequestRedeem = viewModel::requestRewardRedemption
+                        )
                     }
                 }
             }

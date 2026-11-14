@@ -13,6 +13,8 @@ interface YunlongStageProps {
   floating?: boolean;
   isSpeakingTts?: boolean;
   onInterruptTts?: () => void;
+  statusLabelOverride?: string;
+  hideMotionHint?: boolean;
 }
 
 export const YunlongStage: React.FC<YunlongStageProps> = ({
@@ -23,6 +25,8 @@ export const YunlongStage: React.FC<YunlongStageProps> = ({
   floating = false,
   isSpeakingTts = false,
   onInterruptTts,
+  statusLabelOverride,
+  hideMotionHint = false,
 }) => {
   const [imgFailed, setImgFailed] = useState(false);
   const meta = COMPANION_STATE_META[state];
@@ -43,7 +47,7 @@ export const YunlongStage: React.FC<YunlongStageProps> = ({
       : state === 'celebrating' || state === 'happy'
       ? 'animate-yunlong-celebrate'
       : state === 'resting'
-      ? 'opacity-85'
+      ? 'opacity-85 animate-yunlong-breathe'
       : 'animate-yunlong-breathe';
 
   const boxDims =
@@ -56,7 +60,12 @@ export const YunlongStage: React.FC<YunlongStageProps> = ({
       ? 'ring-4 ring-[#10A37F]/30'
       : state === 'thinking'
       ? 'ring-4 ring-[#4FB8FF]/35'
+      : state === 'resting'
+      ? 'ring-2 ring-[#7B8FA8]/25'
       : 'ring-2 ring-white/80';
+
+  const statusText = statusLabelOverride || (isLower ? meta.lowerLabel : meta.upperLabel);
+  const showHint = !floating && !hideMotionHint && !statusLabelOverride;
 
   return (
     <div className="flex flex-col items-center select-none">
@@ -70,7 +79,7 @@ export const YunlongStage: React.FC<YunlongStageProps> = ({
         <div
           className={`relative ${boxDims} rounded-full overflow-hidden ${
             floating
-              ? 'bg-white/75 backdrop-blur-md shadow-[0_16px_36px_-10px_rgba(37,120,255,0.32)]'
+              ? 'bg-white/80 backdrop-blur-md shadow-[0_12px_32px_-8px_rgba(37,120,255,0.28)]'
               : 'bg-gradient-to-b from-[#EAF3FF] to-[#F9FCFF] shadow-sm'
           } ${haloBorder} flex items-center justify-center transition-all duration-200 ${animClass}`}
         >
@@ -97,25 +106,29 @@ export const YunlongStage: React.FC<YunlongStageProps> = ({
               e.stopPropagation();
               onInterruptTts();
             }}
-            className="absolute -bottom-2 -right-5 min-h-[36px] px-3 py-1.5 rounded-full bg-white/95 border border-[#E1EAF4] text-xs font-medium text-[#13233A] shadow-sm hover:bg-[#EEF4FB] transition-colors whitespace-nowrap"
+            className="absolute -bottom-1 -right-6 min-h-[34px] px-3 py-1 rounded-full bg-white/95 border border-[#E1EAF4] text-xs font-medium text-[#13233A] shadow-sm hover:bg-[#EEF4FB] transition-colors whitespace-nowrap"
           >
-            打断播报
+            打断
           </button>
         )}
       </div>
 
       <p
-        className={`mt-1.5 text-xs font-medium px-2.5 py-0.5 rounded-lg ${
+        className={`mt-1.5 text-xs font-medium px-3 py-0.5 rounded-full ${
           floating
-            ? 'bg-white/75 backdrop-blur-sm text-[#475C78] shadow-[0_2px_10px_rgba(19,35,58,0.06)]'
+            ? 'bg-white/85 backdrop-blur-sm text-[#475C78] border border-[#E1EAF4]/80 shadow-xs'
             : 'text-[#475C78]'
         }`}
       >
-        {isLower ? meta.lowerLabel : meta.upperLabel}
-        <span className="mx-1.5 text-[#7B8FA8]" aria-hidden="true">
-          ·
-        </span>
-        <span className="text-[#7B8FA8]">{meta.motionHint}</span>
+        {statusText}
+        {showHint && (
+          <>
+            <span className="mx-1.5 text-[#7B8FA8]" aria-hidden="true">
+              ·
+            </span>
+            <span className="text-[#7B8FA8]">{meta.motionHint}</span>
+          </>
+        )}
       </p>
     </div>
   );

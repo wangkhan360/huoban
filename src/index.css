@@ -84,11 +84,39 @@
   animation: yunlong-celebrate 1.4s ease-in-out infinite;
 }
 
+@keyframes voice-wave {
+  0%, 100% {
+    transform: scaleY(0.38);
+    opacity: 0.65;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.animate-voice-wave-1 {
+  animation: voice-wave 0.9s ease-in-out infinite;
+}
+.animate-voice-wave-2 {
+  animation: voice-wave 0.75s ease-in-out 0.15s infinite;
+}
+.animate-voice-wave-3 {
+  animation: voice-wave 1.05s ease-in-out 0.25s infinite;
+}
+.animate-voice-wave-4 {
+  animation: voice-wave 0.85s ease-in-out 0.1s infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-yunlong-breathe,
   .animate-yunlong-listen,
   .animate-yunlong-speak,
-  .animate-yunlong-celebrate {
+  .animate-yunlong-celebrate,
+  .animate-voice-wave-1,
+  .animate-voice-wave-2,
+  .animate-voice-wave-3,
+  .animate-voice-wave-4 {
     animation: none !important;
   }
 }

@@ -19,6 +19,8 @@ import com.growthpet.student.ui.theme.*
 import kotlinx.coroutines.delay
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 
@@ -27,18 +29,10 @@ fun TaskManagementCard(
     tasks: List<TaskItemEntity>,
     isLowerGrade: Boolean,
     onUpdateTask: (TaskItemEntity, String, String?) -> Unit,
+    onStartFocusTask: (TaskItemEntity) -> Unit = {},
     onStartVoiceCheckin: (TaskItemEntity) -> Unit = {}
 ) {
-    var activeTaskId by remember { mutableStateOf<String?>(null) }
-    var elapsedSec by remember { mutableIntStateOf(0) }
     var selectedDetailTask by remember { mutableStateOf<TaskItemEntity?>(null) }
-
-    LaunchedEffect(activeTaskId) {
-        while (activeTaskId != null) {
-            delay(1000)
-            elapsedSec++
-        }
-    }
 
     val completedCount = tasks.count { it.status == "COMPLETED" }
 
@@ -54,9 +48,9 @@ fun TaskManagementCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(if (isLowerGrade) "今天的小任务" else "今日任务清单", style = MaterialTheme.typography.titleMedium)
+                Text("今天小任务", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "已完成 $completedCount/${tasks.size}",
+                    "$completedCount/${tasks.size} 完成",
                     style = MaterialTheme.typography.labelMedium,
                     color = ColorTokens.SuccessMint
                 )
@@ -65,12 +59,6 @@ fun TaskManagementCard(
 
             tasks.forEach { task ->
                 val isDone = task.status == "COMPLETED"
-                val isRunning = activeTaskId == task.id
-                val sourceLabel = when (task.source) {
-                    "SCHOOL" -> "学校"
-                    "PARENT" -> "家长"
-                    else -> "家庭日常"
-                }
                 val drawableId = when (task.imageResName) {
                     "img_homework_chinese" -> R.drawable.img_homework_chinese
                     "img_homework_english" -> R.drawable.img_homework_english
@@ -95,61 +83,39 @@ fun TaskManagementCard(
                                 contentDescription = task.title,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier
-                                    .size(56.dp)
+                                    .size(48.dp)
                                     .clip(RoundedCornerShape(Radius.sm))
                             )
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(task.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                             Text(
-                                "${task.subject} · $sourceLabel · 预计 ${task.estimatedMinutes} 分钟 · +${task.pointsReward}分",
+                                "${task.subject} · ${task.estimatedMinutes} 分钟 · +${task.pointsReward}分",
                                 style = MaterialTheme.typography.labelMedium
                             )
-                            Text(
-                                "点击查看作业内容与图片",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = ColorTokens.TechBluePrimary
-                            )
                         }
-                        if (isRunning) {
-                            Text(
-                                String.format("%02d:%02d", elapsedSec / 60, elapsedSec % 60),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = ColorTokens.TechBluePrimary
-                            )
-                        }
+                        Text(
+                            "详情",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = ColorTokens.TechBluePrimary
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                         if (!isDone) {
                             Button(
-                                onClick = {
-                                    if (isRunning) {
-                                        activeTaskId = null
-                                        onUpdateTask(task, "COMPLETED", "专注完成用时 ${elapsedSec}秒")
-                                        elapsedSec = 0
-                                    } else {
-                                        activeTaskId = task.id
-                                        elapsedSec = 0
-                                        onUpdateTask(task, "IN_PROGRESS", null)
-                                    }
-                                },
+                                onClick = { onStartFocusTask(task) },
                                 modifier = Modifier.height(40.dp),
                                 shape = RoundedCornerShape(Radius.sm)
                             ) {
-                                Text(if (isRunning) "完成任务" else "开始计时")
+                                Text("开始")
                             }
                             OutlinedButton(
                                 onClick = { onStartVoiceCheckin(task) },
                                 modifier = Modifier.height(40.dp),
                                 shape = RoundedCornerShape(Radius.sm)
                             ) { Text("语音打卡") }
-                            OutlinedButton(
-                                onClick = { selectedDetailTask = task },
-                                modifier = Modifier.height(40.dp),
-                                shape = RoundedCornerShape(Radius.sm)
-                            ) { Text("查看详情") }
                         } else {
                             Text("已完成 · ${task.feedbackNote ?: "表现很棒"}", color = ColorTokens.SuccessMint, style = MaterialTheme.typography.bodyMedium)
                         }
@@ -162,7 +128,7 @@ fun TaskManagementCard(
             if (completedCount == tasks.size && tasks.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(Spacing.xs))
                 Text(
-                    "今日任务全部完成！今日总结：专注力稳定，共获得 ${tasks.sumOf { it.pointsReward }} 分记录。",
+                    "今天小任务全部完成啦！",
                     style = MaterialTheme.typography.bodyMedium,
                     color = ColorTokens.SuccessMint
                 )
@@ -460,8 +426,15 @@ fun PointsRewardsCard(
     onRequestRedeem: (RewardItemEntity) -> Unit
 ) {
     var selectedCategory by remember { mutableStateOf("ALL") }
-    val categories = listOf("ALL" to "全部", "COMPANIONSHIP" to "陪伴", "PLAY_PRIVILEGE" to "玩乐特权", "EXPERIENCE" to "兴趣体验", "PHYSICAL" to "实物")
+    val categories = listOf(
+        "ALL" to "全部活动",
+        "COMPANIONSHIP" to "陪伴",
+        "PLAY_PRIVILEGE" to "玩乐特权",
+        "EXPERIENCE" to "兴趣体验",
+        "PHYSICAL" to "实物"
+    )
     val filtered = if (selectedCategory == "ALL") rewards else rewards.filter { it.category == selectedCategory }
+    val redeemableCount = rewards.count { it.redeemStatus == "AVAILABLE" && totalPoints >= it.costPoints }
 
     Surface(
         shape = CardStyle.shape,
@@ -469,30 +442,88 @@ fun PointsRewardsCard(
         color = ColorTokens.SurfaceCard,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(CardStyle.innerPadding), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("积分与奖励商店", style = MaterialTheme.typography.titleMedium)
-                Text("当前 $totalPoints 分（服务端校验）", color = ColorTokens.TechBluePrimary, fontWeight = FontWeight.Bold)
+        Column(modifier = Modifier.padding(CardStyle.innerPadding), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            // Points Summary Banner
+            Surface(
+                color = ColorTokens.SkyHaloLight,
+                shape = RoundedCornerShape(Radius.md),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(Spacing.md),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            "当前可用积分（服务端校验）",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = ColorTokens.InkSecondary
+                        )
+                        Text(
+                            "$totalPoints 分",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = ColorTokens.TechBluePrimary
+                        )
+                    }
+                    Surface(
+                        color = ColorTokens.SurfaceCard,
+                        shape = RoundedCornerShape(Radius.pill)
+                    ) {
+                        Text(
+                            "可兑换 $redeemableCount 项活动",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = ColorTokens.SuccessMint,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
+                }
             }
-            Text("最近积分记录：", style = MaterialTheme.typography.labelMedium)
-            records.take(2).forEach { rec ->
-                Text("+${rec.delta} 分 · ${rec.reason}", style = MaterialTheme.typography.bodyMedium)
+
+            if (records.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("最近积分明细", style = MaterialTheme.typography.labelMedium, color = ColorTokens.InkMuted)
+                    records.take(2).forEach { rec ->
+                        Text("+${rec.delta} 分 · ${rec.reason}", style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
             }
 
             HorizontalDivider(color = ColorTokens.BorderHairline)
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                categories.take(3).forEach { (key, label) ->
+
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(categories) { (key, label) ->
+                    val isSelected = selectedCategory == key
                     OutlinedButton(
                         onClick = { selectedCategory = key },
-                        modifier = Modifier.height(36.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp)
-                    ) { Text(label, style = MaterialTheme.typography.labelMedium) }
+                        modifier = Modifier.height(34.dp),
+                        shape = RoundedCornerShape(Radius.sm),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (isSelected) ColorTokens.SkyHaloLight else ColorTokens.SurfaceCard,
+                            contentColor = if (isSelected) ColorTokens.TechBluePrimary else ColorTokens.InkSecondary
+                        ),
+                        contentPadding = PaddingValues(horizontal = 12.dp)
+                    ) {
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                        )
+                    }
                 }
             }
 
             filtered.forEach { reward ->
+                val canRedeemNow = reward.redeemStatus == "AVAILABLE" && totalPoints >= reward.costPoints
+                val pointsNeeded = (reward.costPoints - totalPoints).coerceAtLeast(0)
+
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
                 ) {
@@ -505,22 +536,60 @@ fun PointsRewardsCard(
                         )
                     }
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(reward.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                        Text("${reward.costPoints} 分 · ${reward.description}", style = MaterialTheme.typography.labelMedium)
-                        val st = when (reward.redeemStatus) {
-                            "PENDING_PARENT" -> "等待家长确认中"
-                            "APPROVED" -> "兑换成功"
-                            "REJECTED" -> "未通过：${reward.rejectReason ?: "暂不适合"}"
-                            else -> "可申请兑换"
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(reward.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                            if (canRedeemNow) {
+                                Surface(
+                                    color = ColorTokens.SuccessMint.copy(alpha = 0.14f),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text(
+                                        "可兑换",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = ColorTokens.SuccessMint,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
                         }
-                        Text(st, style = MaterialTheme.typography.labelMedium, color = ColorTokens.InkSecondary)
+                        Text(
+                            "${reward.costPoints} 分 · ${reward.description}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = ColorTokens.InkSecondary
+                        )
+                        if (reward.redeemStatus != "AVAILABLE") {
+                            val st = when (reward.redeemStatus) {
+                                "PENDING_PARENT" -> "待家长确认"
+                                "APPROVED" -> "兑换成功"
+                                "REJECTED" -> "未通过：${reward.rejectReason ?: "暂不适合"}"
+                                else -> ""
+                            }
+                            Text(st, style = MaterialTheme.typography.labelMedium, color = ColorTokens.WarningAmber)
+                        }
                     }
                     if (reward.redeemStatus == "AVAILABLE") {
-                        Button(
-                            onClick = { onRequestRedeem(reward) },
-                            modifier = Modifier.height(38.dp),
-                            shape = RoundedCornerShape(Radius.sm)
-                        ) { Text("申请兑换") }
+                        if (canRedeemNow) {
+                            Button(
+                                onClick = { onRequestRedeem(reward) },
+                                modifier = Modifier.height(38.dp),
+                                shape = RoundedCornerShape(Radius.sm)
+                            ) { Text("申请兑换") }
+                        } else {
+                            Surface(
+                                color = ColorTokens.CanvasIce,
+                                shape = RoundedCornerShape(Radius.sm)
+                            ) {
+                                Text(
+                                    "还差 $pointsNeeded 分",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = ColorTokens.InkMuted,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                                )
+                            }
+                        }
                     }
                 }
                 HorizontalDivider(color = ColorTokens.BorderHairline)

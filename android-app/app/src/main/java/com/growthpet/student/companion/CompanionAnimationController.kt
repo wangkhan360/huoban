@@ -87,6 +87,7 @@ fun YunlongCompanionStage(
     isLowerGrade: Boolean,
     size: Dp = 188.dp,
     floating: Boolean = false,
+    statusLabelOverride: String? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -258,23 +259,24 @@ fun YunlongCompanionStage(
             }
         }
 
+        val displayLabel = statusLabelOverride ?: if (isLowerGrade) state.labelLowerGrade else state.labelUpperGrade
         Spacer(modifier = Modifier.height(Spacing.xxs))
         if (floating) {
             Surface(
-                color = ColorTokens.SurfaceCard.copy(alpha = 0.78f),
-                shape = RoundedCornerShape(Radius.sm),
+                color = ColorTokens.SurfaceCard.copy(alpha = 0.85f),
+                shape = RoundedCornerShape(Radius.pill),
                 shadowElevation = 2.dp
             ) {
                 Text(
-                    text = if (isLowerGrade) state.labelLowerGrade else state.labelUpperGrade,
+                    text = displayLabel,
                     style = MaterialTheme.typography.labelMedium,
                     color = ColorTokens.InkSecondary,
-                    modifier = Modifier.padding(horizontal = Spacing.sm, vertical = 2.dp)
+                    modifier = Modifier.padding(horizontal = Spacing.sm, vertical = 3.dp)
                 )
             }
         } else {
             Text(
-                text = if (isLowerGrade) state.labelLowerGrade else state.labelUpperGrade,
+                text = displayLabel,
                 style = MaterialTheme.typography.labelMedium,
                 color = ColorTokens.InkSecondary,
                 modifier = Modifier.padding(horizontal = Spacing.sm)

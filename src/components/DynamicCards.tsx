@@ -25,11 +25,247 @@ const CONFETTI_PIECES = Array.from({ length: 28 }, (_, i) => ({
   isCircle: i % 3 === 0,
 }));
 
+export interface CelebrationOverlayData {
+  taskTitle: string;
+  pointsReward: number;
+  allCompleted: boolean;
+}
+
+export const TaskCelebrationModal: React.FC<{
+  data: CelebrationOverlayData | null;
+  gradeBand: GradeBand;
+  onClose: () => void;
+}> = ({ data, gradeBand, onClose }) => {
+  const isLower = gradeBand === 'LOWER_GRADE';
+  const prefersReducedMotion = useReducedMotion();
+  const [celebrateImgFailed, setCelebrateImgFailed] = useState(false);
+
+  return (
+    <AnimatePresence>
+      {data && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.22 }}
+          onClick={onClose}
+          role="status"
+          aria-live="polite"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#13233A]/20 backdrop-blur-[2px] overflow-hidden cursor-pointer px-4"
+        >
+          {!prefersReducedMotion && (
+            <div className="absolute inset-0 pointer-events-none overflow-hidden">
+              {CONFETTI_PIECES.map((piece) => (
+                <motion.span
+                  key={piece.id}
+                  initial={{ y: -24, x: 0, opacity: 1, rotate: 0, scale: 0.9 }}
+                  animate={{
+                    y: '105vh',
+                    x: piece.driftX,
+                    opacity: [1, 1, 0],
+                    rotate: piece.rotate,
+                    scale: 1,
+                  }}
+                  transition={{
+                    duration: piece.duration,
+                    delay: piece.delay,
+                    ease: 'easeOut',
+                  }}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: `${piece.leftPct}%`,
+                    width: piece.size,
+                    height: piece.isCircle ? piece.size : piece.size * 0.55,
+                    borderRadius: piece.isCircle ? '9999px' : '2px',
+                    backgroundColor: piece.color,
+                  }}
+                />
+              ))}
+            </div>
+          )}
+
+          <motion.div
+            initial={prefersReducedMotion ? { opacity: 0 } : { scale: 0.86, y: 18, opacity: 0 }}
+            animate={prefersReducedMotion ? { opacity: 1 } : { scale: 1, y: 0, opacity: 1 }}
+            exit={prefersReducedMotion ? { opacity: 0 } : { scale: 0.92, y: 10, opacity: 0 }}
+            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+            className="relative bg-white border border-[#DCEBFF] rounded-3xl px-7 py-6 max-w-xs w-full text-center shadow-lg space-y-3"
+          >
+            <div className="mx-auto w-32 h-32 rounded-full overflow-hidden bg-gradient-to-b from-[#EAF3FF] to-[#F9FCFF] ring-4 ring-[#10A37F]/25 flex items-center justify-center animate-yunlong-celebrate">
+              {!celebrateImgFailed ? (
+                <img
+                  src={yunlongCelebratingImg}
+                  alt="云龙庆祝任务完成"
+                  referrerPolicy="no-referrer"
+                  onError={() => setCelebrateImgFailed(true)}
+                  className="w-full h-full object-cover mix-blend-multiply scale-105"
+                />
+              ) : (
+                <span className="text-sm font-semibold text-[#10A37F]">云龙庆祝中</span>
+              )}
+            </div>
+
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-[#10A37F]">
+                {data.allCompleted
+                  ? '今日全部任务达成'
+                  : isLower
+                  ? '太棒啦！云龙为你庆祝'
+                  : '任务达成 · 专注表现很稳'}
+              </p>
+              <h5 className="text-base font-bold text-[#13233A]">{data.taskTitle}</h5>
+              <p className="text-xs text-[#475C78] font-mono-tabular">
+                +{data.pointsReward} 分 · 轻触关闭
+              </p>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
+
+export const PointsRewardsCard: React.FC<{
+  totalPoints: number;
+  pointsRecords: PointsRecord[];
+  rewards: RewardItem[];
+  onRequestRedeem: (rewardId: string) => void;
+}> = ({ totalPoints, pointsRecords, rewards, onRequestRedeem }) => {
+  const [rewardFilter, setRewardFilter] = useState<'ALL' | RewardItem['category']>('ALL');
+  const categories: Array<'ALL' | RewardItem['category']> = [
+    'ALL',
+    '陪伴',
+    '玩乐特权',
+    '兴趣体验',
+    '实物',
+  ];
+  const visibleRewards =
+    rewardFilter === 'ALL'
+      ? rewards
+      : rewards.filter((r) => r.category === rewardFilter);
+  const redeemableCount = rewards.filter(
+    (r) => r.redeemStatus === 'AVAILABLE' && totalPoints >= r.costPoints
+  ).length;
+
+  return (
+    <div className="bg-white border border-[#E1EAF4] rounded-2xl p-4 shadow-xs space-y-3">
+      {/* Points Summary Banner */}
+      <div className="rounded-xl bg-gradient-to-r from-[#EAF3FF] via-[#F2F7FF] to-[#E8F8F2] border border-[#DCEBFF] p-3.5 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-medium text-[#475C78]">当前可用积分（服务端记录）</p>
+          <p className="text-2xl font-bold text-[#13233A] font-mono-tabular mt-0.5">
+            {totalPoints} <span className="text-xs font-medium text-[#2578FF]">分</span>
+          </p>
+        </div>
+        <div className="text-right">
+          <span className="inline-block px-2.5 py-1 rounded-full bg-white/90 border border-[#DCEBFF] text-xs font-semibold text-[#10A37F]">
+            可兑换 {redeemableCount} 项活动
+          </span>
+        </div>
+      </div>
+
+      {/* Recent Points Records */}
+      <div className="text-xs text-[#475C78] space-y-1">
+        <p className="text-[#7B8FA8]">最近积分明细</p>
+        {pointsRecords.slice(0, 2).map((rec) => (
+          <p key={rec.id} className="font-mono-tabular flex items-center justify-between gap-2">
+            <span className="truncate">+{rec.delta} 分 · {rec.reason}</span>
+            <span className="text-[#7B8FA8] shrink-0">{rec.date}</span>
+          </p>
+        ))}
+      </div>
+
+      {/* Category Filter Tabs */}
+      <div className="flex items-center gap-1 p-1 bg-[#F5F8FC] rounded-xl overflow-x-auto">
+        {categories.map((cat) => (
+          <button
+            key={cat}
+            type="button"
+            onClick={() => setRewardFilter(cat)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
+              rewardFilter === cat
+                ? 'bg-white text-[#13233A] shadow-xs'
+                : 'text-[#475C78] hover:text-[#13233A]'
+            }`}
+          >
+            {cat === 'ALL' ? '全部活动' : cat}
+          </button>
+        ))}
+      </div>
+
+      {/* Redeemable Reward Activities */}
+      <div className="divide-y divide-[#E1EAF4]">
+        {visibleRewards.map((rw) => {
+          const canRedeemNow = rw.redeemStatus === 'AVAILABLE' && totalPoints >= rw.costPoints;
+          const pointsNeeded = Math.max(0, rw.costPoints - totalPoints);
+
+          return (
+            <div key={rw.id} className="py-3 first:pt-1 last:pb-1 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                {rw.hasImage && (
+                  <img
+                    src={rewardScienceKitImg}
+                    alt={rw.title}
+                    referrerPolicy="no-referrer"
+                    className="w-14 h-12 rounded-xl object-cover shrink-0 border border-[#E1EAF4]"
+                  />
+                )}
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <p className="text-sm font-medium text-[#13233A]">{rw.title}</p>
+                    {canRedeemNow && (
+                      <span className="px-1.5 py-0.5 rounded-md bg-[#E8F8F2] text-[10px] font-semibold text-[#10A37F] shrink-0">
+                        可兑换
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-[#7B8FA8] mt-0.5">
+                    {rw.category}
+                    <span className="mx-1.5" aria-hidden="true">·</span>
+                    <span className="font-mono-tabular font-medium text-[#2578FF]">{rw.costPoints} 分</span>
+                  </p>
+                  <p className="text-xs text-[#475C78] mt-0.5">{rw.description}</p>
+                </div>
+              </div>
+
+              {rw.redeemStatus === 'AVAILABLE' ? (
+                canRedeemNow ? (
+                  <button
+                    type="button"
+                    onClick={() => onRequestRedeem(rw.id)}
+                    className="min-h-[38px] px-3 py-1.5 rounded-xl bg-[#2578FF] text-white text-xs font-medium hover:bg-[#1A5FD1] shrink-0 whitespace-nowrap transition-colors"
+                  >
+                    申请兑换
+                  </button>
+                ) : (
+                  <span className="min-h-[36px] px-2.5 py-1.5 rounded-xl bg-[#F5F8FC] border border-[#E1EAF4] text-xs font-medium text-[#7B8FA8] shrink-0 whitespace-nowrap flex items-center">
+                    还差 {pointsNeeded} 分
+                  </span>
+                )
+              ) : (
+                <span className="text-xs font-medium text-[#D9820B] shrink-0 whitespace-nowrap">
+                  {rw.redeemStatus === 'PENDING_PARENT'
+                    ? '待家长确认'
+                    : rw.redeemStatus === 'APPROVED'
+                    ? '兑换成功'
+                    : '未通过'}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 interface DynamicCardsProps {
   cardType: DynamicCardType;
   gradeBand: GradeBand;
   tasks: TaskItem[];
   onUpdateTask: (taskId: string, status: TaskItem['status'], feedback?: string) => void;
+  onStartFocusTask?: (task: TaskItem) => void;
   onStartVoiceCheckin?: (task: TaskItem) => void;
   schedule: ScheduleSlot[];
   onMoveScheduleUp: (index: number) => void;
@@ -52,6 +288,7 @@ export const DynamicCards: React.FC<DynamicCardsProps> = ({
   gradeBand,
   tasks,
   onUpdateTask,
+  onStartFocusTask,
   onStartVoiceCheckin,
   schedule,
   onMoveScheduleUp,
@@ -68,26 +305,9 @@ export const DynamicCards: React.FC<DynamicCardsProps> = ({
   onAuthorizeMic,
   onSaveRecording,
 }) => {
-  const isLower = gradeBand === 'LOWER_GRADE';
-  const prefersReducedMotion = useReducedMotion();
-
-  // Task timer & completion celebration state
-  const [runningTaskId, setRunningTaskId] = useState<string | null>(null);
-  const [elapsedSec, setElapsedSec] = useState(0);
   const [detailTask, setDetailTask] = useState<TaskItem | null>(null);
   const [zoomedImage, setZoomedImage] = useState<{ url: string; caption: string } | null>(null);
-  const [celebrateImgFailed, setCelebrateImgFailed] = useState(false);
-  const [celebrationOverlay, setCelebrationOverlay] = useState<{
-    taskTitle: string;
-    pointsReward: number;
-    allCompleted: boolean;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!runningTaskId) return;
-    const timer = window.setInterval(() => setElapsedSec((s) => s + 1), 1000);
-    return () => window.clearInterval(timer);
-  }, [runningTaskId]);
+  const [celebrationOverlay, setCelebrationOverlay] = useState<CelebrationOverlayData | null>(null);
 
   useEffect(() => {
     if (!celebrationOverlay) return;
@@ -120,9 +340,6 @@ export const DynamicCards: React.FC<DynamicCardsProps> = ({
   // Wish local edit state
   const [wishTitle, setWishTitle] = useState(wish.wishTitle);
   const [budgetNote, setBudgetNote] = useState(wish.budgetNote);
-
-  // Reward filter state
-  const [rewardFilter, setRewardFilter] = useState<'ALL' | RewardItem['category']>('ALL');
 
   // English reading recorder state
   const [isRecording, setIsRecording] = useState(false);
@@ -208,62 +425,41 @@ export const DynamicCards: React.FC<DynamicCardsProps> = ({
     return (
       <div className="bg-white border border-[#E1EAF4] rounded-2xl p-4 shadow-xs space-y-3">
         <div className="flex items-center justify-between gap-4">
-          <h4 className="text-base font-semibold text-[#13233A]">
-            {isLower ? '今天的小任务' : '今日任务清单'}
-          </h4>
+          <h4 className="text-base font-semibold text-[#13233A]">今天小任务</h4>
           <span className="text-xs font-medium text-[#10A37F] font-mono-tabular">
-            已完成 {doneCount}/{tasks.length}
+            {doneCount}/{tasks.length} 完成
           </span>
         </div>
 
         <div className="divide-y divide-[#E1EAF4]">
           {tasks.map((task) => {
             const isDone = task.status === 'COMPLETED';
-            const isRunning = runningTaskId === task.id;
             return (
-              <div key={task.id} className="py-3 first:pt-1 last:pb-1 space-y-2.5">
+              <div key={task.id} className="py-3 first:pt-1 last:pb-1 space-y-2">
                 <button
                   type="button"
                   onClick={() => setDetailTask(task)}
-                  className="w-full text-left flex items-start justify-between gap-3 group rounded-xl p-1.5 -mx-1.5 hover:bg-[#F5F8FC] transition-colors"
+                  className="w-full text-left flex items-center justify-between gap-3 group rounded-xl p-1.5 -mx-1.5 hover:bg-[#F5F8FC] transition-colors"
                 >
-                  <div className="flex items-start gap-2.5 min-w-0">
+                  <div className="flex items-center gap-2.5 min-w-0">
                     {task.images.length > 0 && (
                       <img
                         src={task.images[0].url}
                         alt={task.title}
                         referrerPolicy="no-referrer"
-                        className="w-12 h-10 rounded-lg object-cover border border-[#E1EAF4] shrink-0 mt-0.5"
+                        className="w-11 h-11 rounded-lg object-cover border border-[#E1EAF4] shrink-0"
                       />
                     )}
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-[#13233A] group-hover:text-[#2578FF] transition-colors">
+                      <p className="text-sm font-medium text-[#13233A] group-hover:text-[#2578FF] transition-colors truncate">
                         {task.title}
                       </p>
                       <p className="text-xs text-[#7B8FA8] mt-0.5">
-                        {task.subject}
-                        <span className="mx-1.5" aria-hidden="true">·</span>
-                        预计 {task.estimatedMinutes} 分钟
-                        <span className="mx-1.5" aria-hidden="true">·</span>
-                        +{task.pointsReward} 分
-                        {task.images.length > 0 && (
-                          <>
-                            <span className="mx-1.5" aria-hidden="true">·</span>
-                            含 {task.images.length} 张作业图片
-                          </>
-                        )}
+                        {task.subject} · {task.estimatedMinutes} 分钟 · +{task.pointsReward} 分
                       </p>
                     </div>
                   </div>
-                  <div className="shrink-0 flex flex-col items-end">
-                    {isRunning && (
-                      <span className="text-sm font-semibold text-[#2578FF] font-mono-tabular">
-                        {String(Math.floor(elapsedSec / 60)).padStart(2, '0')}:
-                        {String(elapsedSec % 60).padStart(2, '0')}
-                      </span>
-                    )}
-                    <span className="text-xs text-[#2578FF] font-medium">查看详情</span>
-                  </div>
+                  <span className="text-xs text-[#2578FF] font-medium shrink-0">详情</span>
                 </button>
 
                 {!isDone ? (
@@ -271,43 +467,30 @@ export const DynamicCards: React.FC<DynamicCardsProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        if (isRunning) {
-                          setRunningTaskId(null);
-                          handleTaskUpdate(task, 'COMPLETED', `专注计时 ${elapsedSec} 秒完成`);
-                          setElapsedSec(0);
+                        if (onStartFocusTask) {
+                          onStartFocusTask(task);
                         } else {
-                          setRunningTaskId(task.id);
-                          setElapsedSec(0);
                           handleTaskUpdate(task, 'IN_PROGRESS');
                         }
                       }}
-                      className="min-h-[40px] px-3.5 py-1.5 rounded-xl bg-[#2578FF] text-white text-xs font-medium hover:bg-[#1A5FD1] transition-colors whitespace-nowrap"
+                      className="min-h-[38px] px-4 py-1.5 rounded-xl bg-[#2578FF] text-white text-xs font-medium hover:bg-[#1A5FD1] transition-colors whitespace-nowrap"
                     >
-                      {isRunning ? '完成任务' : '开始计时'}
+                      开始
                     </button>
-                    {!isRunning && onStartVoiceCheckin && (
+                    {onStartVoiceCheckin && (
                       <button
                         type="button"
                         onClick={() => onStartVoiceCheckin(task)}
-                        className="min-h-[40px] px-3.5 py-1.5 rounded-xl bg-[#EEF4FB] text-[#2578FF] text-xs font-medium hover:bg-[#DCEBFF] transition-colors whitespace-nowrap"
+                        className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#EEF4FB] text-[#2578FF] text-xs font-medium hover:bg-[#DCEBFF] transition-colors whitespace-nowrap"
                       >
-                        语音打卡录音
-                      </button>
-                    )}
-                    {!isRunning && (
-                      <button
-                        type="button"
-                        onClick={() => handleTaskUpdate(task, 'COMPLETED', '已完成打卡')}
-                        className="min-h-[40px] px-3.5 py-1.5 rounded-xl bg-[#E8F8F2] text-[#10A37F] text-xs font-medium hover:bg-[#D5F2E6] transition-colors whitespace-nowrap"
-                      >
-                        标记完成
+                        语音打卡
                       </button>
                     )}
                     {task.status === 'HELP_REQUESTED' && (
-                      <span className="text-xs text-[#D9820B] font-medium">已发起求助提醒</span>
+                      <span className="text-xs text-[#D9820B] font-medium">已求助</span>
                     )}
                     {task.status === 'TIME_ADJUST_REQUESTED' && (
-                      <span className="text-xs text-[#2578FF] font-medium">已申请调时，待家长确认</span>
+                      <span className="text-xs text-[#2578FF] font-medium">已申请调时</span>
                     )}
                   </div>
                 ) : (
@@ -322,7 +505,7 @@ export const DynamicCards: React.FC<DynamicCardsProps> = ({
 
         {doneCount === tasks.length && (
           <div className="pt-2 border-t border-[#E1EAF4] text-xs text-[#10A37F] font-medium">
-            今日总结：全部任务达成，专注节奏稳步提升。
+            今天小任务全部完成啦！
           </div>
         )}
 
@@ -473,92 +656,11 @@ export const DynamicCards: React.FC<DynamicCardsProps> = ({
         )}
 
         {/* Transient Full-Screen Confetti & Yunlong Celebrating Overlay */}
-        <AnimatePresence>
-          {celebrationOverlay && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.22 }}
-              onClick={() => setCelebrationOverlay(null)}
-              role="status"
-              aria-live="polite"
-              className="fixed inset-0 z-50 flex items-center justify-center bg-[#13233A]/20 backdrop-blur-[2px] overflow-hidden cursor-pointer px-4"
-            >
-              {/* Full-screen confetti particles */}
-              {!prefersReducedMotion && (
-                <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                  {CONFETTI_PIECES.map((piece) => (
-                    <motion.span
-                      key={piece.id}
-                      initial={{ y: -24, x: 0, opacity: 1, rotate: 0, scale: 0.9 }}
-                      animate={{
-                        y: '105vh',
-                        x: piece.driftX,
-                        opacity: [1, 1, 0],
-                        rotate: piece.rotate,
-                        scale: 1,
-                      }}
-                      transition={{
-                        duration: piece.duration,
-                        delay: piece.delay,
-                        ease: 'easeOut',
-                      }}
-                      style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: `${piece.leftPct}%`,
-                        width: piece.size,
-                        height: piece.isCircle ? piece.size : piece.size * 0.55,
-                        borderRadius: piece.isCircle ? '9999px' : '2px',
-                        backgroundColor: piece.color,
-                      }}
-                    />
-                  ))}
-                </div>
-              )}
-
-              {/* Yunlong celebrating stage card */}
-              <motion.div
-                initial={prefersReducedMotion ? { opacity: 0 } : { scale: 0.86, y: 18, opacity: 0 }}
-                animate={prefersReducedMotion ? { opacity: 1 } : { scale: 1, y: 0, opacity: 1 }}
-                exit={prefersReducedMotion ? { opacity: 0 } : { scale: 0.92, y: 10, opacity: 0 }}
-                transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-                className="relative bg-white border border-[#DCEBFF] rounded-3xl px-7 py-6 max-w-xs w-full text-center shadow-lg space-y-3"
-              >
-                <div className="mx-auto w-32 h-32 rounded-full overflow-hidden bg-gradient-to-b from-[#EAF3FF] to-[#F9FCFF] ring-4 ring-[#10A37F]/25 flex items-center justify-center animate-yunlong-celebrate">
-                  {!celebrateImgFailed ? (
-                    <img
-                      src={yunlongCelebratingImg}
-                      alt="云龙庆祝任务完成"
-                      referrerPolicy="no-referrer"
-                      onError={() => setCelebrateImgFailed(true)}
-                      className="w-full h-full object-cover mix-blend-multiply scale-105"
-                    />
-                  ) : (
-                    <span className="text-sm font-semibold text-[#10A37F]">云龙庆祝中</span>
-                  )}
-                </div>
-
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold text-[#10A37F]">
-                    {celebrationOverlay.allCompleted
-                      ? '今日全部任务达成'
-                      : isLower
-                      ? '太棒啦！云龙为你庆祝'
-                      : '任务达成 · 专注表现很稳'}
-                  </p>
-                  <h5 className="text-base font-bold text-[#13233A]">
-                    {celebrationOverlay.taskTitle}
-                  </h5>
-                  <p className="text-xs text-[#475C78] font-mono-tabular">
-                    记录 +{celebrationOverlay.pointsReward} 分待服务端同步 · 点击任意处关闭
-                  </p>
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <TaskCelebrationModal
+          data={celebrationOverlay}
+          gradeBand={gradeBand}
+          onClose={() => setCelebrationOverlay(null)}
+        />
       </div>
     );
   }
@@ -773,96 +875,13 @@ export const DynamicCards: React.FC<DynamicCardsProps> = ({
   }
 
   if (cardType === 'POINTS_REWARDS') {
-    const categories: Array<'ALL' | RewardItem['category']> = [
-      'ALL',
-      '陪伴',
-      '玩乐特权',
-      '兴趣体验',
-      '实物',
-    ];
-    const visibleRewards =
-      rewardFilter === 'ALL'
-        ? rewards
-        : rewards.filter((r) => r.category === rewardFilter);
-
     return (
-      <div className="bg-white border border-[#E1EAF4] rounded-2xl p-4 shadow-xs space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <h4 className="text-base font-semibold text-[#13233A]">积分与奖励商店</h4>
-          <span className="text-sm font-semibold text-[#2578FF] font-mono-tabular">
-            当前 {totalPoints} 分（服务端校验）
-          </span>
-        </div>
-
-        <div className="text-xs text-[#475C78] space-y-1">
-          <p className="text-[#7B8FA8]">最近积分记录（客户端只读展示）</p>
-          {pointsRecords.slice(0, 2).map((rec) => (
-            <p key={rec.id} className="font-mono-tabular">
-              +{rec.delta} 分 · {rec.reason} · {rec.date}
-            </p>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-1 p-1 bg-[#F5F8FC] rounded-xl overflow-x-auto">
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              type="button"
-              onClick={() => setRewardFilter(cat)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
-                rewardFilter === cat
-                  ? 'bg-white text-[#13233A] shadow-xs'
-                  : 'text-[#475C78] hover:text-[#13233A]'
-              }`}
-            >
-              {cat === 'ALL' ? '全部' : cat}
-            </button>
-          ))}
-        </div>
-
-        <div className="divide-y divide-[#E1EAF4]">
-          {visibleRewards.map((rw) => (
-            <div key={rw.id} className="py-3 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
-                {rw.hasImage && (
-                  <img
-                    src={rewardScienceKitImg}
-                    alt={rw.title}
-                    referrerPolicy="no-referrer"
-                    className="w-14 h-12 rounded-xl object-cover shrink-0 border border-[#E1EAF4]"
-                  />
-                )}
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-[#13233A] truncate">{rw.title}</p>
-                  <p className="text-xs text-[#7B8FA8] mt-0.5">
-                    {rw.category}
-                    <span className="mx-1.5" aria-hidden="true">·</span>
-                    <span className="font-mono-tabular">{rw.costPoints} 分</span>
-                  </p>
-                  <p className="text-xs text-[#475C78] mt-0.5">{rw.description}</p>
-                </div>
-              </div>
-              {rw.redeemStatus === 'AVAILABLE' ? (
-                <button
-                  type="button"
-                  onClick={() => onRequestRedeem(rw.id)}
-                  className="min-h-[38px] px-3 py-1.5 rounded-xl bg-[#2578FF] text-white text-xs font-medium hover:bg-[#1A5FD1] shrink-0 whitespace-nowrap"
-                >
-                  申请兑换
-                </button>
-              ) : (
-                <span className="text-xs font-medium text-[#D9820B] shrink-0 whitespace-nowrap">
-                  {rw.redeemStatus === 'PENDING_PARENT'
-                    ? '待家长确认'
-                    : rw.redeemStatus === 'APPROVED'
-                    ? '兑换成功'
-                    : '未通过'}
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
+      <PointsRewardsCard
+        totalPoints={totalPoints}
+        pointsRecords={pointsRecords}
+        rewards={rewards}
+        onRequestRedeem={onRequestRedeem}
+      />
     );
   }
 
@@ -909,9 +928,9 @@ export const DynamicCards: React.FC<DynamicCardsProps> = ({
               <button
                 type="button"
                 onClick={stopReadingRecording}
-                className="flex-1 min-h-[44px] px-4 rounded-xl bg-[#E04848] text-white text-sm font-medium whitespace-nowrap"
+                className="flex-1 min-h-[44px] px-4 rounded-xl bg-[#0EA5A4] hover:bg-[#0D9488] text-white text-sm font-medium whitespace-nowrap transition-colors"
               >
-                停止录音
+                完成录音
               </button>
             )}
 
